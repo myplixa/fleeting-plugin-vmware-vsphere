@@ -1,8 +1,261 @@
 package vsphereclient
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"sync"
+
+	"github.com/google/uuid"
+	"github.com/hashicorp/go-hclog"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/types"
+)
+
+const VmNamePrefix = "fleeting-vsphere-vm"
 
 type Client interface {
-	CloneVM(ctx context.Context)
 	DeleteVM(ctx context.Context)
+	TemplateClone(ctx context.Context) error
+}
+
+type client struct {
+	client        *govmomi.Client
+	destPool      types.ManagedObjectReference
+	destDatastore types.ManagedObjectReference
+	destFolder    types.ManagedObjectReference
+}
+
+func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destPool string, destDatastore string, destFolder string) (*client, error) {
+	url, err := url.Parse(vsphereUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := govmomi.NewClient(ctx, url, insecure)
+	if err != nil {
+		return nil, err
+	}
+
+	finder := find.NewFinder(c.Client)
+
+	poolMOR, err := initResourcePool(ctx, finder, destPool)
+	if err != nil {
+		return nil, err
+	}
+
+	dsMOR, err := initDatastore(ctx, finder, destDatastore)
+	if err != nil {
+		return nil, err
+	}
+
+	folder, err := finder.Folder(ctx, destFolder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find folder %s: %w", destFolder, err)
+	}
+	folderMOR := folder.Reference()
+
+	return &client{
+		client:        c,
+		destPool:      *poolMOR,
+		destDatastore: *dsMOR,
+		destFolder:    folderMOR,
+	}, nil
+}
+
+func initResourcePool(ctx context.Context, finder *find.Finder, destPool string) (*types.ManagedObjectReference, error) {
+	if destPool == "" {
+		pool, err := finder.DefaultResourcePool(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup default Resource Pool: %w", err)
+		}
+
+		poolMOR := pool.Reference()
+		return &poolMOR, nil
+	}
+
+	pool, err := finder.ResourcePool(ctx, destPool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find the Resource Pool %s: %w", destPool, err)
+	}
+	poolMOR := pool.Reference()
+
+	return &poolMOR, nil
+}
+
+func initDatastore(ctx context.Context, finder *find.Finder, destDatastore string) (*types.ManagedObjectReference, error) {
+	if destDatastore == "" {
+		ds, err := finder.DefaultDatastore(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup default Datastore: %w", err)
+		}
+
+		dsMOR := ds.Reference()
+		return &dsMOR, nil
+	}
+
+	ds, err := finder.Datastore(ctx, destDatastore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find the Datastore %s: %w", destDatastore, err)
+	}
+	dsMOR := ds.Reference()
+
+	return &dsMOR, nil
+}
+
+func (c *client) TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error) {
+	if c == nil {
+		return 0, fmt.Errorf("client needs to be initialized before cloning")
+	}
+
+	finder := find.NewFinder(c.client.Client)
+
+	srcVM, err := finder.VirtualMachine(ctx, template)
+	srcMOR := srcVM.Reference()
+	if err != nil {
+		return 0, fmt.Errorf("failed to find source template: %w", err)
+	}
+
+	if isTemp, err := srcVM.IsTemplate(ctx); err != nil {
+		return 0, fmt.Errorf("failed to confirm %s is a template: %w", template, err)
+	} else if !isTemp {
+		return 0, fmt.Errorf("%s should be a template", template)
+	}
+
+	var wg sync.WaitGroup
+	resultChan := make(chan cloneResult, count)
+
+	for range count {
+		wg.Add(1)
+
+		go func(srcMOR types.ManagedObjectReference) {
+			defer wg.Done()
+
+			name, err := c.templateClone(ctx, srcMOR, template)
+			resultChan <- cloneResult{
+				name:      name,
+				isSuccess: err == nil,
+				err:       err,
+			}
+		}(srcMOR)
+	}
+
+	wg.Wait()
+	close(resultChan)
+
+	var newClones uint
+	for result := range resultChan {
+		if result.isSuccess {
+			newClones++
+			continue
+		}
+
+		log.Error("failure in vm clone", "error", result.err, "name", result.name)
+	}
+
+	return newClones, nil
+}
+
+type cloneResult struct {
+	name      string
+	isSuccess bool
+	err       error
+}
+
+func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, template string) (string, error) {
+	spec := types.VirtualMachineCloneSpec{
+		Location: types.VirtualMachineRelocateSpec{
+			Folder:    &c.destFolder,
+			Pool:      &c.destPool,
+			Datastore: &c.destDatastore,
+		},
+		PowerOn:  true, // This field is ignored when cloning from a template
+		Template: false,
+	}
+	srcVM := object.NewVirtualMachine(c.client.Client, src)
+
+	id := uuid.New()
+	targetName := fmt.Sprintf("%s-%s", VmNamePrefix, id)
+
+	folder := object.NewFolder(c.client.Client, c.destFolder)
+
+	task, err := srcVM.Clone(ctx, folder, targetName, spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to clone VM from template %s", template)
+	}
+
+	err = task.Wait(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to wait for VM cloning to complete: %w", err)
+	}
+
+	var folderProps mo.Folder
+	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
+
+	var clonedVM *object.VirtualMachine
+	for _, mor := range folderProps.ChildEntity {
+		if mor.Type != "VirtualMachine" {
+			continue
+		}
+
+		vm := object.NewVirtualMachine(c.client.Client, mor)
+		name, err := vm.ObjectName(ctx)
+		if err != nil {
+			continue
+		}
+
+		if name == targetName {
+			clonedVM = vm
+			break
+		}
+	}
+
+	if clonedVM == nil {
+		return targetName, fmt.Errorf("failed to find the newly cloned VM '%s'", targetName)
+	}
+
+	if err := c.startVM(ctx, clonedVM.Reference(), targetName); err != nil {
+		if derr := c.deleteVM(ctx, clonedVM.Reference(), targetName); derr != nil {
+			return targetName, derr
+		}
+
+		return targetName, err
+	}
+
+	return targetName, nil
+}
+
+func (c *client) startVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
+	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
+
+	task, err := vm.PowerOn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start VM '%s': %w", vmName, err)
+	}
+
+	err = task.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to wait for VM '%s' startup: %w", vmName, err)
+	}
+
+	return nil
+}
+
+func (c *client) deleteVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
+	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
+
+	task, err := vm.Destroy(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete VM '%s'", vmName)
+	}
+
+	err = task.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to wait for VM '%s' deletion", vmName)
+	}
+
+	return nil
 }
