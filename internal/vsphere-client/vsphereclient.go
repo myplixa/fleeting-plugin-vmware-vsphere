@@ -20,7 +20,7 @@ const VmNamePrefix = "fleeting-vsphere-vm"
 
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
-	TemplateClone(ctx context.Context) error
+	TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error)
 }
 
 type client struct {
@@ -181,7 +181,7 @@ func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logg
 		vm := object.NewVirtualMachine(c.client.Client, mor)
 		name, err := vm.ObjectName(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to find vm name: %w", err)
+			continue
 		}
 
 		if slices.Contains(vmNames, name) {
@@ -281,7 +281,7 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 		return targetName, fmt.Errorf("failed to find the newly cloned VM '%s'", targetName)
 	}
 
-	if err := c.startVM(ctx, clonedVM.Reference(), targetName); err != nil {
+	if err := c.powerOnVM(ctx, clonedVM.Reference(), targetName); err != nil {
 		if derr := c.deleteVM(ctx, clonedVM.Reference(), targetName); derr != nil {
 			return targetName, derr
 		}
@@ -292,7 +292,7 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 	return targetName, nil
 }
 
-func (c *client) startVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
+func (c *client) powerOnVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
 	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
 
 	task, err := vm.PowerOn(ctx)
@@ -308,7 +308,7 @@ func (c *client) startVM(ctx context.Context, vmMOR types.ManagedObjectReference
 	return nil
 }
 
-func (c *client) powerOff(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
+func (c *client) powerOffVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
 	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
 
 	task, err := vm.PowerOff(ctx)
@@ -333,7 +333,7 @@ func (c *client) deleteVM(ctx context.Context, vmMOR types.ManagedObjectReferenc
 	}
 
 	if state == types.VirtualMachinePowerStatePoweredOn {
-		if err := c.powerOff(ctx, vmMOR, vmName); err != nil {
+		if err := c.powerOffVM(ctx, vmMOR, vmName); err != nil {
 			return fmt.Errorf("failed to delete VM '%s': %w", vmName, err)
 		}
 	}
