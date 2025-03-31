@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -18,7 +19,7 @@ import (
 const VmNamePrefix = "fleeting-vsphere-vm"
 
 type Client interface {
-	DeleteVM(ctx context.Context)
+	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
 	TemplateClone(ctx context.Context) error
 }
 
@@ -106,6 +107,12 @@ func initDatastore(ctx context.Context, finder *find.Finder, destDatastore strin
 	return &dsMOR, nil
 }
 
+type taskResult struct {
+	name      string
+	isSuccess bool
+	err       error
+}
+
 func (c *client) TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error) {
 	if c == nil {
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
@@ -126,7 +133,7 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 	}
 
 	var wg sync.WaitGroup
-	resultChan := make(chan cloneResult, count)
+	resultChan := make(chan taskResult, count)
 
 	for range count {
 		wg.Add(1)
@@ -135,7 +142,7 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 			defer wg.Done()
 
 			name, err := c.templateClone(ctx, srcMOR, template)
-			resultChan <- cloneResult{
+			resultChan <- taskResult{
 				name:      name,
 				isSuccess: err == nil,
 				err:       err,
@@ -159,10 +166,67 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 	return newClones, nil
 }
 
-type cloneResult struct {
-	name      string
-	isSuccess bool
-	err       error
+func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error) {
+	folder := object.NewFolder(c.client.Client, c.destFolder)
+
+	var folderProps mo.Folder
+	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
+
+	vms := make(map[string]types.ManagedObjectReference, len(vmNames))
+	for _, mor := range folderProps.ChildEntity {
+		if mor.Type != "VirtualMachine" {
+			continue
+		}
+
+		vm := object.NewVirtualMachine(c.client.Client, mor)
+		name, err := vm.ObjectName(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find vm name: %w", err)
+		}
+
+		if slices.Contains(vmNames, name) {
+			vms[name] = vm.Reference()
+		}
+	}
+
+	for _, vmName := range vmNames {
+		if _, ok := vms[vmName]; !ok {
+			log.Error("failure in vm deletion", "error", "failed to find VM in the destFolder", "name", vmName)
+		}
+	}
+
+	var wg sync.WaitGroup
+	resultChan := make(chan taskResult, len(vms))
+
+	for name, vm := range vms {
+		wg.Add(1)
+
+		go func(vm types.ManagedObjectReference, name string) {
+			defer wg.Done()
+
+			err := c.deleteVM(ctx, vm, name)
+			resultChan <- taskResult{
+				name:      name,
+				isSuccess: err == nil,
+				err:       err,
+			}
+		}(vm, name)
+	}
+
+	wg.Wait()
+	close(resultChan)
+
+	deletedVms := make([]string, 0, len(vms))
+	for result := range resultChan {
+		if result.isSuccess {
+			deletedVms = append(deletedVms, result.name)
+			continue
+		}
+
+		log.Error("failure in vm deletion", "error", result.err, "name", result.name)
+	}
+
+	return deletedVms, nil
 }
 
 func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, template string) (string, error) {
@@ -244,8 +308,35 @@ func (c *client) startVM(ctx context.Context, vmMOR types.ManagedObjectReference
 	return nil
 }
 
+func (c *client) powerOff(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
+	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
+
+	task, err := vm.PowerOff(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to power off VM '%s': %w", vmName, err)
+	}
+
+	err = task.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to wait for VM '%s' power off: %w", vmName, err)
+	}
+
+	return nil
+}
+
 func (c *client) deleteVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
 	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
+
+	state, err := vm.PowerState(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete VM '%s': %w", vmName, err)
+	}
+
+	if state == types.VirtualMachinePowerStatePoweredOn {
+		if err := c.powerOff(ctx, vmMOR, vmName); err != nil {
+			return fmt.Errorf("failed to delete VM '%s': %w", vmName, err)
+		}
+	}
 
 	task, err := vm.Destroy(ctx)
 	if err != nil {
