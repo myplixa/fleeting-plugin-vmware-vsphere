@@ -16,21 +16,24 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-const VmNamePrefix = "fleeting-vsphere-vm"
-
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
 	TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error)
 }
 
 type client struct {
-	client        *govmomi.Client
-	destPool      types.ManagedObjectReference
-	destDatastore types.ManagedObjectReference
-	destFolder    types.ManagedObjectReference
+	client         *govmomi.Client
+	destPool       types.ManagedObjectReference
+	destDatastore  types.ManagedObjectReference
+	destFolder     types.ManagedObjectReference
+	destDataCenter types.ManagedObjectReference
+	namePrefix     string
 }
 
-func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destPool string, destDatastore string, destFolder string) (*client, error) {
+func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destDataCenter string, destPool string, destDatastore string, destFolder string, namePrefix string) (*client, error) {
+	if namePrefix == "" {
+		return nil, fmt.Errorf("no prefix name provided for VM")
+	}
 	url, err := url.Parse(vsphereUrl)
 	if err != nil {
 		return nil, err
@@ -42,6 +45,11 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destPool s
 	}
 
 	finder := find.NewFinder(c.Client)
+
+	dcMOR, err := initDataCenter(ctx, finder, destDataCenter)
+	if err != nil {
+		return nil, err
+	}
 
 	poolMOR, err := initResourcePool(ctx, finder, destPool)
 	if err != nil {
@@ -60,11 +68,32 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destPool s
 	folderMOR := folder.Reference()
 
 	return &client{
-		client:        c,
-		destPool:      *poolMOR,
-		destDatastore: *dsMOR,
-		destFolder:    folderMOR,
+		client:         c,
+		destDataCenter: *dcMOR,
+		destPool:       *poolMOR,
+		destDatastore:  *dsMOR,
+		destFolder:     folderMOR,
 	}, nil
+}
+
+func initDataCenter(ctx context.Context, finder *find.Finder, destDataCenter string) (*types.ManagedObjectReference, error) {
+	if destDataCenter == "" {
+		dc, err := finder.DefaultDatacenter(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup default Datacenter: %w", err)
+		}
+
+		dcMOR := dc.Reference()
+		return &dcMOR, nil
+	}
+
+	ds, err := finder.Datacenter(ctx, destDataCenter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find the Datacenter '%s': %w", destDataCenter, err)
+	}
+	dsMOR := ds.Reference()
+
+	return &dsMOR, nil
 }
 
 func initResourcePool(ctx context.Context, finder *find.Finder, destPool string) (*types.ManagedObjectReference, error) {
@@ -242,7 +271,7 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 	srcVM := object.NewVirtualMachine(c.client.Client, src)
 
 	id := uuid.New()
-	targetName := fmt.Sprintf("%s-%s", VmNamePrefix, id)
+	targetName := fmt.Sprintf("%s-%s", c.namePrefix, id)
 
 	folder := object.NewFolder(c.client.Client, c.destFolder)
 
@@ -349,4 +378,13 @@ func (c *client) deleteVM(ctx context.Context, vmMOR types.ManagedObjectReferenc
 	}
 
 	return nil
+}
+
+func (c *client) newFinder() *find.Finder {
+	finder := find.NewFinder(c.client.Client)
+
+	dc := object.NewDatacenter(c.client.Client, c.destDataCenter)
+	finder.SetDatacenter(dc)
+
+	return finder
 }
