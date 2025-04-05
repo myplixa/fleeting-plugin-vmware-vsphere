@@ -49,7 +49,10 @@ func (g *InstanceGroup) ConnectInfo(ctx context.Context, id string) (provider.Co
 }
 
 func (g *InstanceGroup) Update(ctx context.Context, update func(instance string, state provider.State)) error {
-	vms := g.client.GetVMs(ctx, g.log)
+	vms, err := g.client.GetVMs(ctx, g.log)
+	if err != nil {
+		return err
+	}
 
 	for name, state := range vms {
 		update(name, state)

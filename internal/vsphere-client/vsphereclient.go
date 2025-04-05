@@ -2,6 +2,7 @@ package vsphereclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -22,7 +23,7 @@ import (
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
 	TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error)
-	GetVMs(ctx context.Context, logger hclog.Logger) map[string]provider.State
+	GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error)
 }
 
 type client struct {
@@ -200,7 +201,7 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 	return newClones, nil
 }
 
-func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) map[string]provider.State {
+func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error) {
 	folder := object.NewFolder(c.client.Client, c.destFolder)
 
 	var folderProps mo.Folder
@@ -218,6 +219,8 @@ func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) map[string]pro
 		if err != nil {
 			logger.Error("failed to get vm name", "error", err, "mor", vm.Reference())
 			continue
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
 		}
 
 		if !strings.HasPrefix(name, c.namePrefix) {
@@ -227,12 +230,14 @@ func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) map[string]pro
 		state, err := c.getVMState(ctx, mor)
 		if err != nil {
 			logger.Error("failed to get vm state", "error", err, "name", name, "mor", vm.Reference())
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
 		}
 
 		vms[name] = state
 	}
 
-	return vms
+	return vms, nil
 }
 
 func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error) {

@@ -151,7 +151,7 @@ func TestInit_Context(t *testing.T) {
 		g := InstanceGroup{
 			VsphereUrl:         s.URL.String(),
 			InsecureConnection: true,
-			Folder:             "DC0/vm/FOLDER_NOT_HERE",
+			Folder:             "DC0/vm",
 			Name:               "Test-Vsphere",
 		}
 
@@ -161,5 +161,28 @@ func TestInit_Context(t *testing.T) {
 		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
 
 		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("context cancels after init still has working client", func(t *testing.T) {
+		s, cleanup := setupSim(t, 1, 0, 0, 1, 1, 0)
+		defer cleanup()
+
+		g := InstanceGroup{
+			VsphereUrl:         s.URL.String(),
+			InsecureConnection: true,
+			Folder:             "DC0/vm",
+			Name:               "Test-Vsphere",
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
+		require.NoError(t, err)
+
+		cancel()
+
+		err = g.Update(ctx, func(instance string, state provider.State) {})
+		require.NoError(t, err)
 	})
 }
