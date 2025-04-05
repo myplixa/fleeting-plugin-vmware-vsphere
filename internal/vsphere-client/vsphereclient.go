@@ -3,8 +3,10 @@ package vsphereclient
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -14,11 +16,13 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
 )
 
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
 	TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error)
+	GetVMs(ctx context.Context, logger hclog.Logger) map[string]provider.State
 }
 
 type client struct {
@@ -73,6 +77,7 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destDataCe
 		destPool:       *poolMOR,
 		destDatastore:  *dsMOR,
 		destFolder:     folderMOR,
+		namePrefix:     namePrefix,
 	}, nil
 }
 
@@ -147,14 +152,14 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
 	}
 
-	finder := find.NewFinder(c.client.Client)
+	finder := c.newFinder()
 
 	srcVM, err := finder.VirtualMachine(ctx, template)
-	srcMOR := srcVM.Reference()
 	if err != nil {
 		return 0, fmt.Errorf("failed to find source template: %w", err)
 	}
 
+	srcMOR := srcVM.Reference()
 	if isTemp, err := srcVM.IsTemplate(ctx); err != nil {
 		return 0, fmt.Errorf("failed to confirm %s is a template: %w", template, err)
 	} else if !isTemp {
@@ -193,6 +198,41 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 	}
 
 	return newClones, nil
+}
+
+func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) map[string]provider.State {
+	folder := object.NewFolder(c.client.Client, c.destFolder)
+
+	var folderProps mo.Folder
+	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
+
+	vms := make(map[string]provider.State)
+	for _, mor := range folderProps.ChildEntity {
+		if mor.Type != "VirtualMachine" {
+			continue
+		}
+
+		vm := object.NewVirtualMachine(c.client.Client, mor)
+
+		name, err := vm.ObjectName(ctx)
+		if err != nil {
+			logger.Error("failed to get vm name", "error", err, "mor", vm.Reference())
+			continue
+		}
+
+		if !strings.HasPrefix(name, c.namePrefix) {
+			continue
+		}
+
+		state, err := c.getVMState(ctx, mor)
+		if err != nil {
+			logger.Error("failed to get vm state", "error", err, "name", name, "mor", vm.Reference())
+		}
+
+		vms[name] = state
+	}
+
+	return vms
 }
 
 func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error) {
@@ -378,6 +418,49 @@ func (c *client) deleteVM(ctx context.Context, vmMOR types.ManagedObjectReferenc
 	}
 
 	return nil
+}
+
+func (c *client) getVMState(ctx context.Context, vmMOR types.ManagedObjectReference) (provider.State, error) {
+	vm := object.NewVirtualMachine(c.client.Client, vmMOR)
+
+	vmName, err := vm.ObjectName(ctx)
+	if err != nil {
+		return provider.StateDeleting, fmt.Errorf("failed to get vm name: %w", err)
+	}
+
+	var vmInfo mo.VirtualMachine
+	err = vm.Properties(ctx, vm.Reference(), []string{
+		"runtime.powerState",
+		"guest.guestState",
+		"guest.net",
+	}, &vmInfo)
+	if err != nil {
+		return provider.StateDeleting, fmt.Errorf("failed to virtual machine information: %w", err)
+	}
+
+	if vmInfo.Runtime.PowerState != types.VirtualMachinePowerStatePoweredOn {
+		return provider.StateDeleting, nil
+	}
+
+	if vmInfo.Guest == nil {
+		return provider.StateDeleting, fmt.Errorf("no guest info found for VM '%s'", vmName)
+	}
+
+	for _, nic := range vmInfo.Guest.Net {
+		if nic.MacAddress == "" || nic.IpConfig == nil {
+			continue
+		}
+
+		for _, ip := range nic.IpAddress {
+			if vmip := net.ParseIP(ip).String(); vmip == "nil" {
+				continue
+			}
+
+			return provider.StateRunning, nil
+		}
+	}
+
+	return provider.StateCreating, nil
 }
 
 func (c *client) newFinder() *find.Finder {

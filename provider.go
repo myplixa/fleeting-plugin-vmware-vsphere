@@ -49,7 +49,13 @@ func (g *InstanceGroup) ConnectInfo(ctx context.Context, id string) (provider.Co
 }
 
 func (g *InstanceGroup) Update(ctx context.Context, update func(instance string, state provider.State)) error {
-	return fmt.Errorf("Not implemented")
+	vms := g.client.GetVMs(ctx, g.log)
+
+	for name, state := range vms {
+		update(name, state)
+	}
+
+	return nil
 }
 
 func (g *InstanceGroup) Increase(ctx context.Context, delta int) (int, error) {
