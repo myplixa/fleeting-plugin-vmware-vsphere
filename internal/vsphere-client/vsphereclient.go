@@ -431,7 +431,6 @@ func (c *client) getVMState(ctx context.Context, vmMOR types.ManagedObjectRefere
 	var vmInfo mo.VirtualMachine
 	err = vm.Properties(ctx, vm.Reference(), []string{
 		"runtime.powerState",
-		"guest.guestState",
 		"guest.net",
 	}, &vmInfo)
 	if err != nil {
