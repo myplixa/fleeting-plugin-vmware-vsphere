@@ -22,124 +22,178 @@ import (
 
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
-	TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error)
+	TemplateClone(ctx context.Context, count uint, log hclog.Logger) (uint, error)
 	GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error)
 }
 
+type ClientOption func(ctx context.Context, c *client, finder *find.Finder) error
+
 type client struct {
-	client         *govmomi.Client
-	destPool       types.ManagedObjectReference
-	destDatastore  types.ManagedObjectReference
-	destFolder     types.ManagedObjectReference
-	destDataCenter types.ManagedObjectReference
-	namePrefix     string
+	client     *govmomi.Client
+	datacenter types.ManagedObjectReference
+	pool       types.ManagedObjectReference
+	host       types.ManagedObjectReference
+	datastore  types.ManagedObjectReference
+	folder     types.ManagedObjectReference
+	template   types.ManagedObjectReference
+	namePrefix string
 }
 
-func NewClient(ctx context.Context, vsphereUrl string, insecure bool, destDataCenter string, destPool string, destDatastore string, destFolder string, namePrefix string) (*client, error) {
-	if namePrefix == "" {
-		return nil, fmt.Errorf("no prefix name provided for VM")
-	}
+func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...ClientOption) (*client, error) {
 	url, err := url.Parse(vsphereUrl)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := govmomi.NewClient(ctx, url, insecure)
+	gc, err := govmomi.NewClient(ctx, url, insecure)
 	if err != nil {
 		return nil, err
 	}
 
-	finder := find.NewFinder(c.Client)
+	finder := find.NewFinder(gc.Client)
 
-	dcMOR, err := initDataCenter(ctx, finder, destDataCenter)
-	if err != nil {
-		return nil, err
+	c := client{
+		client: gc,
 	}
 
-	poolMOR, err := initResourcePool(ctx, finder, destPool)
-	if err != nil {
-		return nil, err
+	for _, option := range options {
+		err := option(ctx, &c, finder)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	dsMOR, err := initDatastore(ctx, finder, destDatastore)
-	if err != nil {
-		return nil, err
-	}
-
-	folder, err := finder.Folder(ctx, destFolder)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find folder %s: %w", destFolder, err)
-	}
-	folderMOR := folder.Reference()
-
-	return &client{
-		client:         c,
-		destDataCenter: *dcMOR,
-		destPool:       *poolMOR,
-		destDatastore:  *dsMOR,
-		destFolder:     folderMOR,
-		namePrefix:     namePrefix,
-	}, nil
-}
-
-func initDataCenter(ctx context.Context, finder *find.Finder, destDataCenter string) (*types.ManagedObjectReference, error) {
-	if destDataCenter == "" {
+	if c.datacenter == (types.ManagedObjectReference{}) {
 		dc, err := finder.DefaultDatacenter(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup default Datacenter: %w", err)
 		}
 
-		dcMOR := dc.Reference()
-		return &dcMOR, nil
+		c.datacenter = dc.Reference()
 	}
 
-	ds, err := finder.Datacenter(ctx, destDataCenter)
+	finder.SetDatacenter(object.NewDatacenter(c.client.Client, c.datacenter))
+
+	templateVM, err := finder.VirtualMachine(ctx, template)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find the Datacenter '%s': %w", destDataCenter, err)
+		return nil, fmt.Errorf("failed to find source template %s: %w", template, err)
 	}
-	dsMOR := ds.Reference()
 
-	return &dsMOR, nil
-}
+	if isTemp, err := templateVM.IsTemplate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to confirm %s is a template: %w", template, err)
+	} else if !isTemp {
+		return nil, fmt.Errorf("%s should be a template", template)
+	}
+	c.template = templateVM.Reference()
 
-func initResourcePool(ctx context.Context, finder *find.Finder, destPool string) (*types.ManagedObjectReference, error) {
-	if destPool == "" {
+	if c.folder == (types.ManagedObjectReference{}) {
+		folder, err := finder.DefaultFolder(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		c.folder = folder.Reference()
+	}
+
+	if c.host == (types.ManagedObjectReference{}) {
+		host, err := finder.DefaultHostSystem(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		c.host = host.Reference()
+	}
+
+	if c.pool == (types.ManagedObjectReference{}) {
 		pool, err := finder.DefaultResourcePool(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup default Resource Pool: %w", err)
 		}
 
-		poolMOR := pool.Reference()
-		return &poolMOR, nil
+		c.pool = pool.Reference()
 	}
 
-	pool, err := finder.ResourcePool(ctx, destPool)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find the Resource Pool %s: %w", destPool, err)
-	}
-	poolMOR := pool.Reference()
-
-	return &poolMOR, nil
-}
-
-func initDatastore(ctx context.Context, finder *find.Finder, destDatastore string) (*types.ManagedObjectReference, error) {
-	if destDatastore == "" {
+	if c.datastore == (types.ManagedObjectReference{}) {
 		ds, err := finder.DefaultDatastore(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup default Datastore: %w", err)
 		}
 
-		dsMOR := ds.Reference()
-		return &dsMOR, nil
+		c.datastore = ds.Reference()
 	}
 
-	ds, err := finder.Datastore(ctx, destDatastore)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find the Datastore %s: %w", destDatastore, err)
+	if c.namePrefix == "" {
+		c.namePrefix = uuid.NewString()
 	}
-	dsMOR := ds.Reference()
 
-	return &dsMOR, nil
+	return &c, nil
+}
+
+func WithFolder(folder string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		folder, err := finder.Folder(ctx, folder)
+		if err != nil {
+			return fmt.Errorf("failed to find folder %s: %w", folder, err)
+		}
+
+		c.folder = folder.Reference()
+		return nil
+	}
+}
+
+func WithDatacenter(datacenter string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		ds, err := finder.Datacenter(ctx, datacenter)
+		if err != nil {
+			return fmt.Errorf("failed to find the datacenter '%s': %w", datacenter, err)
+		}
+
+		c.datacenter = ds.Reference()
+		return nil
+	}
+}
+
+func WithPool(pool string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		pool, err := finder.ResourcePool(ctx, pool)
+		if err != nil {
+			return fmt.Errorf("failed to find the resource pool %s: %w", pool, err)
+		}
+
+		c.pool = pool.Reference()
+		return nil
+	}
+}
+
+func WithHost(host string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		host, err := finder.HostSystem(ctx, host)
+		if err != nil {
+			return fmt.Errorf("failed to find the host %s: %w", host, err)
+		}
+
+		c.host = host.Reference()
+		return nil
+	}
+}
+
+func WithDatastore(datastore string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		ds, err := finder.Datastore(ctx, datastore)
+		if err != nil {
+			return fmt.Errorf("failed to find the datastore %s: %w", datastore, err)
+		}
+
+		c.datastore = ds.Reference()
+		return nil
+	}
+}
+
+func WithVMNamePrefix(prefix string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		c.namePrefix = prefix
+		return nil
+	}
 }
 
 type taskResult struct {
@@ -148,23 +202,9 @@ type taskResult struct {
 	err       error
 }
 
-func (c *client) TemplateClone(ctx context.Context, template string, count uint, log hclog.Logger) (uint, error) {
+func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger) (uint, error) {
 	if c == nil {
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
-	}
-
-	finder := c.newFinder()
-
-	srcVM, err := finder.VirtualMachine(ctx, template)
-	if err != nil {
-		return 0, fmt.Errorf("failed to find source template: %w", err)
-	}
-
-	srcMOR := srcVM.Reference()
-	if isTemp, err := srcVM.IsTemplate(ctx); err != nil {
-		return 0, fmt.Errorf("failed to confirm %s is a template: %w", template, err)
-	} else if !isTemp {
-		return 0, fmt.Errorf("%s should be a template", template)
 	}
 
 	var wg sync.WaitGroup
@@ -173,16 +213,16 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 	for range count {
 		wg.Add(1)
 
-		go func(srcMOR types.ManagedObjectReference) {
+		go func() {
 			defer wg.Done()
 
-			name, err := c.templateClone(ctx, srcMOR, template)
+			name, err := c.templateClone(ctx, c.template)
 			resultChan <- taskResult{
 				name:      name,
 				isSuccess: err == nil,
 				err:       err,
 			}
-		}(srcMOR)
+		}()
 	}
 
 	wg.Wait()
@@ -202,7 +242,7 @@ func (c *client) TemplateClone(ctx context.Context, template string, count uint,
 }
 
 func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error) {
-	folder := object.NewFolder(c.client.Client, c.destFolder)
+	folder := object.NewFolder(c.client.Client, c.folder)
 
 	var folderProps mo.Folder
 	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
@@ -241,7 +281,7 @@ func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) (map[string]pr
 }
 
 func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error) {
-	folder := object.NewFolder(c.client.Client, c.destFolder)
+	folder := object.NewFolder(c.client.Client, c.folder)
 
 	var folderProps mo.Folder
 	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
@@ -303,12 +343,13 @@ func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logg
 	return deletedVms, nil
 }
 
-func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, template string) (string, error) {
+func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference) (string, error) {
 	spec := types.VirtualMachineCloneSpec{
 		Location: types.VirtualMachineRelocateSpec{
-			Folder:    &c.destFolder,
-			Pool:      &c.destPool,
-			Datastore: &c.destDatastore,
+			Folder:    &c.folder,
+			Pool:      &c.pool,
+			Host:      &c.host,
+			Datastore: &c.datastore,
 		},
 		PowerOn:  true, // This field is ignored when cloning from a template
 		Template: false,
@@ -318,11 +359,11 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 	id := uuid.New()
 	targetName := fmt.Sprintf("%s-%s", c.namePrefix, id)
 
-	folder := object.NewFolder(c.client.Client, c.destFolder)
+	folder := object.NewFolder(c.client.Client, c.folder)
 
 	task, err := srcVM.Clone(ctx, folder, targetName, spec)
 	if err != nil {
-		return "", fmt.Errorf("failed to clone VM from template %s", template)
+		return "", fmt.Errorf("failed to clone VM from template: %w", err)
 	}
 
 	err = task.Wait(ctx)
@@ -470,7 +511,7 @@ func (c *client) getVMState(ctx context.Context, vmMOR types.ManagedObjectRefere
 func (c *client) newFinder() *find.Finder {
 	finder := find.NewFinder(c.client.Client)
 
-	dc := object.NewDatacenter(c.client.Client, c.destDataCenter)
+	dc := object.NewDatacenter(c.client.Client, c.datacenter)
 	finder.SetDatacenter(dc)
 
 	return finder

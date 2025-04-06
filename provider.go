@@ -14,7 +14,8 @@ type InstanceGroup struct {
 	VsphereUrl         string `json:"vsphere_url"`
 	Template           string `json:"template"`
 	Folder             string `json:"folder"`
-	DataCenter         string `json:"data_center"`
+	Datacenter         string `json:"datacenter"`
+	Host               string `json:"host"`
 	Datastore          string `json:"datastore"`
 	ResourcePool       string `json:"resource_pool"`
 	InsecureConnection bool   `json:"allow_insecure_connection"`
@@ -27,17 +28,43 @@ type InstanceGroup struct {
 }
 
 func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings provider.Settings) (provider.ProviderInfo, error) {
-	client, err := vsphereclient.NewClient(ctx, g.VsphereUrl, g.InsecureConnection, g.DataCenter, g.ResourcePool, g.Datastore, g.Folder, g.Name)
+	var options []vsphereclient.ClientOption
+
+	if g.Datacenter != "" {
+		options = append(options, vsphereclient.WithDatacenter(g.Datacenter))
+	}
+
+	if g.Folder != "" {
+		options = append(options, vsphereclient.WithFolder(g.Folder))
+	}
+
+	if g.Host != "" {
+		options = append(options, vsphereclient.WithHost(g.Host))
+	}
+
+	if g.ResourcePool != "" {
+		options = append(options, vsphereclient.WithPool(g.ResourcePool))
+	}
+
+	if g.Datastore != "" {
+		options = append(options, vsphereclient.WithDatastore(g.Datastore))
+	}
+
+	if g.Name != "" {
+		options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
+	}
+
+	client, err := vsphereclient.NewClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, options...)
 	if err != nil {
 		return provider.ProviderInfo{}, err
 	}
 
 	g.client = client
 	g.settings = settings
-	g.log = logger.With("data Center", g.DataCenter, "folder", g.Folder, "template", g.Template)
+	g.log = logger.With("data Center", g.Datacenter, "folder", g.Folder, "template", g.Template)
 
 	return provider.ProviderInfo{
-		ID:        path.Join("vsphere", g.Name, g.DataCenter),
+		ID:        path.Join("vsphere", g.Name, g.Datacenter),
 		MaxSize:   50,
 		Version:   Version.String(),
 		BuildInfo: Version.BuildInfo(),
