@@ -72,7 +72,41 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 }
 
 func (g *InstanceGroup) ConnectInfo(ctx context.Context, id string) (provider.ConnectInfo, error) {
-	return provider.ConnectInfo{}, fmt.Errorf("Not implemented")
+	info := provider.ConnectInfo{
+		ID:              id,
+		ConnectorConfig: g.settings.ConnectorConfig,
+	}
+
+	internalIP, err := g.client.NetInfo(ctx, id)
+	if err != nil {
+		return provider.ConnectInfo{}, fmt.Errorf("fetching ip address: %w", err)
+	}
+	info.InternalAddr = internalIP
+
+	if info.UseStaticCredentials {
+		return info, nil
+	}
+
+	if info.OS == "windows" {
+		return provider.ConnectInfo{}, fmt.Errorf("provisioning credential for windows is not supported")
+	}
+
+	if info.Protocol == "" {
+		info.Protocol = provider.ProtocolSSH
+	}
+
+	if info.Username == "" {
+		info.Username = g.settings.Username
+	}
+
+	switch info.Protocol {
+	case provider.ProtocolSSH:
+		if info.Key == nil {
+			info.Key = g.settings.Key
+		}
+	}
+
+	return info, nil
 }
 
 func (g *InstanceGroup) Update(ctx context.Context, update func(instance string, state provider.State)) error {

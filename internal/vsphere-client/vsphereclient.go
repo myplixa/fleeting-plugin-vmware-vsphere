@@ -24,6 +24,7 @@ type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
 	TemplateClone(ctx context.Context, count uint, log hclog.Logger) (uint, error)
 	GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error)
+	NetInfo(ctx context.Context, vmName string) (string, error)
 }
 
 type ClientOption func(ctx context.Context, c *client, finder *find.Finder) error
@@ -508,11 +509,65 @@ func (c *client) getVMState(ctx context.Context, vmMOR types.ManagedObjectRefere
 	return provider.StateCreating, nil
 }
 
-func (c *client) newFinder() *find.Finder {
-	finder := find.NewFinder(c.client.Client)
+func (c *client) NetInfo(ctx context.Context, vmName string) (string, error) {
+	folder := object.NewFolder(c.client.Client, c.folder)
 
-	dc := object.NewDatacenter(c.client.Client, c.datacenter)
-	finder.SetDatacenter(dc)
+	var folderProps mo.Folder
+	folder.Properties(ctx, folder.Reference(), []string{"childEntity"}, &folderProps)
 
-	return finder
+	var vm *object.VirtualMachine
+	for _, mor := range folderProps.ChildEntity {
+		if mor.Type != "VirtualMachine" {
+			continue
+		}
+
+		v := object.NewVirtualMachine(c.client.Client, mor)
+		name, err := v.ObjectName(ctx)
+		if err != nil {
+			continue
+		}
+
+		if name != vmName {
+			continue
+		}
+
+		vm = v
+		break
+	}
+
+	if vm == nil {
+		return "", fmt.Errorf("failed to find vm '%s'", vmName)
+	}
+
+	var vmNetInfo mo.VirtualMachine
+	err := vm.Properties(ctx, vm.Reference(), []string{"guest.net"}, &vmNetInfo)
+	if err != nil {
+		return "", err
+	}
+
+	if vmNetInfo.Guest == nil || vmNetInfo.Guest.Net == nil {
+		return "", fmt.Errorf("failed to fetch the vm guest os net info")
+	}
+
+	var internalIP string
+	for _, nic := range vmNetInfo.Guest.Net {
+		if nic.MacAddress == "" || nic.IpConfig == nil {
+			continue
+		}
+
+		for _, ip := range nic.IpAddress {
+			if vmip := net.ParseIP(ip).String(); vmip == "nil" {
+				continue
+			} else {
+				internalIP = vmip
+				break
+			}
+		}
+	}
+
+	if internalIP == "" {
+		return "", fmt.Errorf("failed to get ip address of vm '%s'", vmName)
+	}
+
+	return internalIP, nil
 }
