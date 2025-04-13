@@ -10,6 +10,12 @@ import (
 	vsphereclient "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client"
 )
 
+const MaxInstances = 50
+
+var _ provider.InstanceGroup = (*InstanceGroup)(nil)
+
+var newClient = vsphereclient.NewClient
+
 type InstanceGroup struct {
 	VsphereUrl         string `json:"vsphere_url"`
 	Template           string `json:"template"`
@@ -30,6 +36,39 @@ type InstanceGroup struct {
 }
 
 func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings provider.Settings) (provider.ProviderInfo, error) {
+	var options []vsphereclient.ClientOption
+
+	if g.Datacenter != "" {
+		options = append(options, vsphereclient.WithDatacenter(g.Datacenter))
+	}
+
+	if g.Folder != "" {
+		options = append(options, vsphereclient.WithFolder(g.Folder))
+	}
+
+	if g.Host != "" {
+		options = append(options, vsphereclient.WithHost(g.Host))
+	}
+
+	if g.ResourcePool != "" {
+		options = append(options, vsphereclient.WithPool(g.ResourcePool))
+	}
+
+	if g.Datastore != "" {
+		options = append(options, vsphereclient.WithDatastore(g.Datastore))
+	}
+
+	if g.Name != "" {
+		options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
+	}
+
+	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, options...)
+	if err != nil {
+		return provider.ProviderInfo{}, err
+	}
+
+	g.client = client
+
 	g.log = logger.With("data Center", g.Datacenter, "folder", g.Folder, "template", g.Template)
 	g.settings = settings
 
@@ -59,45 +98,12 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 		g.sshPubKey = pubKey
 	}
 
-	var options []vsphereclient.ClientOption
-
-	if g.Datacenter != "" {
-		options = append(options, vsphereclient.WithDatacenter(g.Datacenter))
-	}
-
-	if g.Folder != "" {
-		options = append(options, vsphereclient.WithFolder(g.Folder))
-	}
-
-	if g.Host != "" {
-		options = append(options, vsphereclient.WithHost(g.Host))
-	}
-
-	if g.ResourcePool != "" {
-		options = append(options, vsphereclient.WithPool(g.ResourcePool))
-	}
-
-	if g.Datastore != "" {
-		options = append(options, vsphereclient.WithDatastore(g.Datastore))
-	}
-
-	if g.Name != "" {
-		options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
-	}
-
-	client, err := vsphereclient.NewClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, options...)
-	if err != nil {
-		return provider.ProviderInfo{}, err
-	}
-
-	g.client = client
-
 	return provider.ProviderInfo{
 		ID:        path.Join("vsphere", g.Name, g.Datacenter),
-		MaxSize:   50,
+		MaxSize:   MaxInstances,
 		Version:   Version.String(),
 		BuildInfo: Version.BuildInfo(),
-	}, nil
+	}, ctx.Err()
 }
 
 func (g *InstanceGroup) ConnectInfo(ctx context.Context, id string) (provider.ConnectInfo, error) {

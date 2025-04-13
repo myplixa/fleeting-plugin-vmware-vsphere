@@ -2,153 +2,110 @@ package vsphere
 
 import (
 	"context"
-	"net/url"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/require"
-	"github.com/vmware/govmomi"
-	"github.com/vmware/govmomi/find"
-	"github.com/vmware/govmomi/simulator"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
+	vsphereclient "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client"
+	"gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client/fake"
 )
 
-const (
-	TestTemplateVM = "/DC0/vm/DC0_H0_VM0"
-	TestVMFolder   = "/DC0/vm"
-)
+func setupFakeClient(t *testing.T, setup func(client *fake.Client)) *InstanceGroup {
+	t.Helper()
 
-func setupSim(t *testing.T, dc, cluster, pool, ds, host, folder int) (*simulator.Server, func()) {
-	model := simulator.VPX()
+	oldClient := newClient
+	t.Cleanup(func() {
+		newClient = oldClient
+	})
 
-	model.Datacenter = dc
-	model.Cluster = cluster
-	model.Pool = pool
-	model.Datastore = ds
-	model.Host = host
-	model.Folder = folder
+	newClient = func(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...vsphereclient.ClientOption) (vsphereclient.Client, error) {
+		client := fake.New()
 
-	if err := model.Create(); err != nil {
-		t.Fatalf("failed to create simulator: %v", err)
+		if setup != nil {
+			setup(client)
+		}
+
+		return client, nil
 	}
 
-	s := model.Service.NewServer()
-
-	return s, func() {
-		defer model.Remove()
-		defer s.Close()
-	}
-}
-
-func markAsTemplate(t *testing.T, url *url.URL, template string) {
-	ctx := context.Background()
-
-	gc, err := govmomi.NewClient(ctx, url, true)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-
-	finder := find.NewFinder(gc.Client)
-
-	vm, err := finder.VirtualMachine(ctx, template)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-
-	task, err := vm.PowerOff(ctx)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	task.Wait(ctx)
-
-	err = vm.MarkAsTemplate(ctx)
-	if err != nil {
-		t.Fatalf("%v", err)
+	return &InstanceGroup{
+		Name:       "test-vsphere",
+		Datacenter: "test-datacenter",
+		Folder:     "test-folder",
+		Template:   "test-template",
 	}
 }
 
 func TestInit(t *testing.T) {
-	t.Run("init fails provided vm not found", func(t *testing.T) {
-		s, cleanup := setupSim(t, 1, 0, 0, 1, 1, 0)
-		defer cleanup()
-
-		g := InstanceGroup{
-			VsphereUrl:         s.URL.String(),
-			InsecureConnection: true,
-			Folder:             TestVMFolder,
-			Name:               "Test-Vsphere",
-			Template:           "/DC0/vm/VM_NOT_FOUND",
-		}
-
-		ctx := context.Background()
-		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
-
-		require.Error(t, err)
-	})
-
-	t.Run("init fails provide vm is not a template", func(t *testing.T) {
-		s, cleanup := setupSim(t, 1, 0, 0, 1, 1, 0)
-		defer cleanup()
-
-		g := InstanceGroup{
-			VsphereUrl:         s.URL.String(),
-			InsecureConnection: true,
-			Folder:             TestVMFolder,
-			Name:               "Test-Vsphere",
-			Template:           TestTemplateVM,
-		}
-
-		ctx := context.Background()
-		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
-
-		require.Error(t, err)
-	})
-
 	t.Run("context cancels init", func(t *testing.T) {
-		s, cleanup := setupSim(t, 1, 0, 0, 1, 1, 0)
-		defer cleanup()
-
-		markAsTemplate(t, s.URL, TestTemplateVM)
-
-		g := InstanceGroup{
-			VsphereUrl:         s.URL.String(),
-			InsecureConnection: true,
-			Folder:             TestVMFolder,
-			Name:               "Test-Vsphere",
-			Template:           TestTemplateVM,
-		}
+		group := setupFakeClient(t, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
+		settings := provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{
+				UseStaticCredentials: true,
+			},
+		}
+
+		_, err := group.Init(ctx, hclog.Default(), settings)
 
 		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	t.Run("context cancels after init still has working client", func(t *testing.T) {
-		s, cleanup := setupSim(t, 1, 0, 0, 1, 1, 0)
-		defer cleanup()
-
-		markAsTemplate(t, s.URL, TestTemplateVM)
-
-		g := InstanceGroup{
-			VsphereUrl:         s.URL.String(),
-			InsecureConnection: true,
-			Folder:             TestVMFolder,
-			Name:               "Test-Vsphere",
-			Template:           TestTemplateVM,
-		}
+		group := setupFakeClient(t, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		_, err := g.Init(ctx, hclog.Default(), provider.Settings{})
+		settings := provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{
+				UseStaticCredentials: true,
+			},
+		}
+
+		_, err := group.Init(ctx, hclog.Default(), settings)
 		require.NoError(t, err)
 
 		cancel()
 
-		err = g.Update(ctx, func(instance string, state provider.State) {})
+		err = group.Update(ctx, func(instance string, state provider.State) {})
 		require.NoError(t, err)
 	})
+}
+
+func TestIncrease(t *testing.T) {
+	group := setupFakeClient(t, nil)
+
+	ctx := context.Background()
+
+	settings := provider.Settings{
+		ConnectorConfig: provider.ConnectorConfig{
+			UseStaticCredentials: true,
+		},
+	}
+
+	var count int
+	_, err := group.Init(ctx, hclog.Default(), settings)
+	require.NoError(t, err)
+
+	require.NoError(t, group.Update(ctx, func(instance string, state provider.State) {
+		count++
+	}))
+	require.Equal(t, 0, count)
+
+	num, err := group.Increase(ctx, 2)
+	require.NoError(t, err)
+	require.Equal(t, 2, num)
+
+	count = 0
+	require.NoError(t, group.Update(ctx, func(instance string, state provider.State) {
+		require.Equal(t, provider.StateRunning, state)
+		count++
+	}))
+	require.Equal(t, 2, count)
+	require.Equal(t, 2, int(group.size))
 }

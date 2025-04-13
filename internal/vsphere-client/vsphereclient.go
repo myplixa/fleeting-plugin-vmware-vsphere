@@ -40,7 +40,7 @@ type client struct {
 	namePrefix string
 }
 
-func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...ClientOption) (*client, error) {
+func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...ClientOption) (Client, error) {
 	url, err := url.Parse(vsphereUrl)
 	if err != nil {
 		return nil, err
