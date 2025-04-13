@@ -2,6 +2,8 @@ package vsphere
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
@@ -75,6 +77,25 @@ func TestInit(t *testing.T) {
 		err = group.Update(ctx, func(instance string, state provider.State) {})
 		require.NoError(t, err)
 	})
+
+	t.Run("invalid ssh key provided", func(t *testing.T) {
+		group := setupFakeClient(t, func(client *fake.Client) {
+			client.Instances["pre-existing-1"] = provider.StateRunning
+		})
+		group.size = 1
+
+		ctx := context.Background()
+
+		settings := provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{
+				Protocol: provider.ProtocolSSH,
+				Key:      []byte("invalid-key"),
+			},
+		}
+
+		_, err := group.Init(ctx, hclog.Default(), settings)
+		require.ErrorContains(t, err, "reading private key: ssh: no key found")
+	})
 }
 
 func TestIncrease(t *testing.T) {
@@ -145,4 +166,70 @@ func TestDecrease(t *testing.T) {
 	}))
 	require.Equal(t, 1, len(deleted))
 	require.Equal(t, 1, int(group.size))
+}
+
+func TestConnectInfo(t *testing.T) {
+	group := setupFakeClient(t, func(client *fake.Client) {
+		client.Instances["pre-existing-1"] = provider.StateRunning
+	})
+	group.size = 1
+
+	ctx := context.Background()
+	encodedKey := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(fake.Key()),
+		},
+	)
+
+	tests := []struct {
+		name   string
+		config provider.ConnectorConfig
+		assert func(t *testing.T, info provider.ConnectInfo, err error)
+	}{
+		{
+			name: "ssh is default for linux",
+			config: provider.ConnectorConfig{
+				UseStaticCredentials: false,
+				OS:                   "linux",
+			},
+			assert: func(t *testing.T, info provider.ConnectInfo, err error) {
+				require.NoError(t, err)
+				require.Equal(t, provider.ProtocolSSH, info.Protocol)
+				require.NotEmpty(t, info.Key)
+			},
+		},
+		{
+			config: provider.ConnectorConfig{
+				Protocol: provider.ProtocolSSH,
+				Key:      encodedKey,
+			},
+			assert: func(t *testing.T, info provider.ConnectInfo, err error) {
+				require.NoError(t, err)
+				require.Equal(t, info.Protocol, provider.ProtocolSSH)
+				require.Equal(t, info.Key, encodedKey)
+				require.NotEmpty(t, info.Key)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(t.Name(), func(t *testing.T) {
+			settings := provider.Settings{
+				ConnectorConfig: tc.config,
+			}
+
+			var count int
+			_, err := group.Init(ctx, hclog.Default(), settings)
+			require.NoError(t, err)
+
+			require.NoError(t, group.Update(ctx, func(instance string, state provider.State) {
+				count++
+			}))
+			require.Equal(t, 1, count)
+
+			info, err := group.ConnectInfo(ctx, "pre-existing-1")
+			tc.assert(t, info, err)
+		})
+	}
 }

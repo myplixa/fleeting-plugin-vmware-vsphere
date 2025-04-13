@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/hashicorp/go-hclog"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
@@ -72,38 +73,57 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 	g.log = logger.With("data Center", g.Datacenter, "folder", g.Folder, "template", g.Template)
 	g.settings = settings
 
-	if !g.settings.UseStaticCredentials {
-		if g.settings.Protocol != provider.ProtocolSSH {
-			return provider.ProviderInfo{}, fmt.Errorf("provisioning credential is only supported for ssh protocol using cloud-init")
-		}
-
-		if g.settings.Username == "" {
-			g.settings.Username = "fleeting"
-		}
-
-		if g.settings.Key == nil {
-			key, err := g.generateSshKey()
-			if err != nil {
-				return provider.ProviderInfo{}, nil
-			}
-
-			g.settings.Key = key
-		}
-
-		pubKey, err := g.getSshPubKey(g.settings.Key)
-		if err != nil {
-			return provider.ProviderInfo{}, err
-		}
-
-		g.sshPubKey = pubKey
-	}
-
-	return provider.ProviderInfo{
+	providerInfo := provider.ProviderInfo{
 		ID:        path.Join("vsphere", g.Name, g.Datacenter),
 		MaxSize:   MaxInstances,
 		Version:   Version.String(),
 		BuildInfo: Version.BuildInfo(),
-	}, ctx.Err()
+	}
+
+	if g.settings.UseStaticCredentials {
+		return providerInfo, ctx.Err()
+	}
+
+	if g.settings.OS == "" {
+		g.settings.OS = "linux"
+
+		guestOsId, err := g.client.GuestOs(ctx)
+		if err != nil {
+			return providerInfo, nil
+		}
+
+		if strings.Contains(guestOsId, "win") {
+			g.settings.OS = "windows"
+		} else if strings.Contains(guestOsId, "darwin") {
+			g.settings.OS = "darwin"
+		}
+	}
+
+	if g.settings.Protocol == "" && g.settings.OS != "windows" {
+		g.settings.Protocol = provider.ProtocolSSH
+	}
+
+	if g.settings.Username == "" {
+		g.settings.Username = "fleeting"
+	}
+
+	if g.settings.Key == nil {
+		key, err := g.generateSshKey()
+		if err != nil {
+			return provider.ProviderInfo{}, nil
+		}
+
+		g.settings.Key = key
+	}
+
+	pubKey, err := g.getSshPubKey(g.settings.Key)
+	if err != nil {
+		return provider.ProviderInfo{}, err
+	}
+
+	g.sshPubKey = pubKey
+
+	return providerInfo, ctx.Err()
 }
 
 func (g *InstanceGroup) ConnectInfo(ctx context.Context, id string) (provider.ConnectInfo, error) {

@@ -15,6 +15,7 @@ import (
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
@@ -25,6 +26,7 @@ type Client interface {
 	TemplateClone(ctx context.Context, count uint, log hclog.Logger, guestopts *GuestOsOpts) (uint, error)
 	GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error)
 	NetInfo(ctx context.Context, vmName string) (string, error)
+	GuestOs(ctx context.Context) (string, error)
 }
 
 type ClientOption func(ctx context.Context, c *client, finder *find.Finder) error
@@ -589,4 +591,21 @@ func (c *client) NetInfo(ctx context.Context, vmName string) (string, error) {
 	}
 
 	return internalIP, nil
+}
+
+func (c *client) GuestOs(ctx context.Context) (string, error) {
+	vm := object.NewVirtualMachine(c.client.Client, c.template)
+	pc := property.DefaultCollector(c.client.Client)
+
+	var vmMo mo.VirtualMachine
+	err := pc.RetrieveOne(ctx, vm.Reference(), []string{"config.guestId"}, &vmMo)
+	if err != nil {
+		return "", err
+	}
+
+	if vmMo.Config == nil {
+		return "", fmt.Errorf("failed to retrieve guest os info")
+	}
+
+	return vmMo.Config.GuestId, nil
 }
