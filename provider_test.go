@@ -109,3 +109,40 @@ func TestIncrease(t *testing.T) {
 	require.Equal(t, 2, count)
 	require.Equal(t, 2, int(group.size))
 }
+
+func TestDecrease(t *testing.T) {
+	group := setupFakeClient(t, func(client *fake.Client) {
+		client.Instances["pre-existing-1"] = provider.StateRunning
+		client.Instances["pre-existing-2"] = provider.StateRunning
+	})
+	group.size = 2
+
+	ctx := context.Background()
+
+	settings := provider.Settings{
+		ConnectorConfig: provider.ConnectorConfig{
+			UseStaticCredentials: true,
+		},
+	}
+
+	var count int
+	_, err := group.Init(ctx, hclog.Default(), settings)
+	require.NoError(t, err)
+
+	require.NoError(t, group.Update(ctx, func(instance string, state provider.State) {
+		count++
+	}))
+	require.Equal(t, 2, count)
+
+	deleted, err := group.Decrease(ctx, []string{"pre-existing-1"})
+	require.NoError(t, err)
+	require.Contains(t, deleted, "pre-existing-1")
+
+	count = 0
+	require.NoError(t, group.Update(ctx, func(instance string, state provider.State) {
+		require.Equal(t, provider.StateRunning, state)
+		count++
+	}))
+	require.Equal(t, 1, len(deleted))
+	require.Equal(t, 1, int(group.size))
+}
