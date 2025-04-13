@@ -176,7 +176,20 @@ func (g *InstanceGroup) Increase(ctx context.Context, delta int) (int, error) {
 }
 
 func (g *InstanceGroup) Decrease(ctx context.Context, instances []string) ([]string, error) {
-	return nil, fmt.Errorf("Not implemented")
+	deleted, err := g.client.DeleteVMs(ctx, instances, g.log)
+	if err != nil {
+		return nil, err
+	}
+
+	count := int(g.size) - len(deleted)
+
+	if count < 0 {
+		g.log.Error("out-of-sync size", "count", count, "size", g.size, "deleted", len(deleted))
+	}
+
+	g.size = uint(count)
+
+	return deleted, nil
 }
 
 func (g *InstanceGroup) Shutdown(ctx context.Context) error {
