@@ -22,7 +22,7 @@ import (
 
 type Client interface {
 	DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logger) ([]string, error)
-	TemplateClone(ctx context.Context, count uint, log hclog.Logger) (uint, error)
+	TemplateClone(ctx context.Context, count uint, log hclog.Logger, guestopts *GuestOsOpts) (uint, error)
 	GetVMs(ctx context.Context, logger hclog.Logger) (map[string]provider.State, error)
 	NetInfo(ctx context.Context, vmName string) (string, error)
 }
@@ -203,9 +203,27 @@ type taskResult struct {
 	err       error
 }
 
-func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger) (uint, error) {
+type GuestOsOpts struct {
+	Username string
+	PubKey   []byte
+}
+
+func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger, guestopts *GuestOsOpts) (uint, error) {
 	if c == nil {
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
+	}
+
+	var config *types.VirtualMachineConfigSpec
+	if guestopts != nil {
+		userOptions, err := c.encodeUserData(guestopts.Username, guestopts.PubKey)
+		if err != nil {
+			return 0, err
+		}
+
+		config = &types.VirtualMachineConfigSpec{
+			// Cloud-init configurations for adding user for ssh
+			ExtraConfig: userOptions,
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -217,7 +235,7 @@ func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger
 		go func() {
 			defer wg.Done()
 
-			name, err := c.templateClone(ctx, c.template)
+			name, err := c.templateClone(ctx, c.template, config)
 			resultChan <- taskResult{
 				name:      name,
 				isSuccess: err == nil,
@@ -344,7 +362,7 @@ func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logg
 	return deletedVms, nil
 }
 
-func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference) (string, error) {
+func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, config *types.VirtualMachineConfigSpec) (string, error) {
 	spec := types.VirtualMachineCloneSpec{
 		Location: types.VirtualMachineRelocateSpec{
 			Folder:    &c.folder,
@@ -352,7 +370,8 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 			Host:      &c.host,
 			Datastore: &c.datastore,
 		},
-		PowerOn:  true, // This field is ignored when cloning from a template
+		Config:   config,
+		PowerOn:  false, // This field is ignored when cloning from a template
 		Template: false,
 	}
 	srcVM := object.NewVirtualMachine(c.client.Client, src)

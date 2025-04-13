@@ -25,9 +25,40 @@ type InstanceGroup struct {
 	client   vsphereclient.Client
 	settings provider.Settings
 	log      hclog.Logger
+
+	sshPubKey []byte
 }
 
 func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings provider.Settings) (provider.ProviderInfo, error) {
+	g.log = logger.With("data Center", g.Datacenter, "folder", g.Folder, "template", g.Template)
+	g.settings = settings
+
+	if !g.settings.UseStaticCredentials {
+		if g.settings.Protocol != provider.ProtocolSSH {
+			return provider.ProviderInfo{}, fmt.Errorf("provisioning credential is only supported for ssh protocol using cloud-init")
+		}
+
+		if g.settings.Username == "" {
+			g.settings.Username = "fleeting"
+		}
+
+		if g.settings.Key == nil {
+			key, err := g.generateSshKey()
+			if err != nil {
+				return provider.ProviderInfo{}, nil
+			}
+
+			g.settings.Key = key
+		}
+
+		pubKey, err := g.getSshPubKey(g.settings.Key)
+		if err != nil {
+			return provider.ProviderInfo{}, err
+		}
+
+		g.sshPubKey = pubKey
+	}
+
 	var options []vsphereclient.ClientOption
 
 	if g.Datacenter != "" {
@@ -60,8 +91,6 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 	}
 
 	g.client = client
-	g.settings = settings
-	g.log = logger.With("data Center", g.Datacenter, "folder", g.Folder, "template", g.Template)
 
 	return provider.ProviderInfo{
 		ID:        path.Join("vsphere", g.Name, g.Datacenter),
@@ -123,7 +152,21 @@ func (g *InstanceGroup) Update(ctx context.Context, update func(instance string,
 }
 
 func (g *InstanceGroup) Increase(ctx context.Context, delta int) (int, error) {
-	return 0, fmt.Errorf("Not implemented")
+	var guestopts *vsphereclient.GuestOsOpts
+	if !g.settings.UseStaticCredentials {
+		guestopts = &vsphereclient.GuestOsOpts{
+			Username: g.settings.Username,
+			PubKey:   g.sshPubKey,
+		}
+	}
+	count, err := g.client.TemplateClone(ctx, uint(delta), g.log, guestopts)
+	if err != nil {
+		return 0, fmt.Errorf("cloning from template: %w", err)
+	}
+
+	g.size += count
+
+	return int(count), nil
 }
 
 func (g *InstanceGroup) Decrease(ctx context.Context, instances []string) ([]string, error) {

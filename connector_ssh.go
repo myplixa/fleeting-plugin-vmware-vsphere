@@ -1,11 +1,13 @@
 package vsphere
 
 import (
-	"context"
 	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 
-	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -14,8 +16,8 @@ type PrivPub interface {
 	Public() crypto.PublicKey
 }
 
-func (g *InstanceGroup) getSSHPubKey(ctx context.Context, info *provider.ConnectInfo) (ssh.PublicKey, error) {
-	priv, err := ssh.ParseRawPrivateKey(info.Key)
+func (g *InstanceGroup) getSshPubKey(privKey []byte) ([]byte, error) {
+	priv, err := ssh.ParseRawPrivateKey(privKey)
 	if err != nil {
 		return nil, fmt.Errorf("reading private key: %w", err)
 	}
@@ -25,10 +27,29 @@ func (g *InstanceGroup) getSSHPubKey(ctx context.Context, info *provider.Connect
 		return nil, fmt.Errorf("key doesn't export PublicKey()")
 	}
 
-	sshPubKey, err := ssh.NewPublicKey(key.Public())
+	pubkey, err := ssh.NewPublicKey(key.Public())
 	if err != nil {
 		return nil, fmt.Errorf("generating ssh public key: %w", err)
 	}
 
-	return sshPubKey, nil
+	return ssh.MarshalAuthorizedKey(pubkey), nil
+}
+
+func (g *InstanceGroup) generateSshKey() ([]byte, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return nil, fmt.Errorf("generating private key: %w", err)
+	}
+
+	eKey := pem.EncodeToMemory(
+		&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(key),
+		})
+
+	if eKey == nil {
+		return nil, fmt.Errorf("encoding private key: %w", err)
+	}
+
+	return eKey, nil
 }
