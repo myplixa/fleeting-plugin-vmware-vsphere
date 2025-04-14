@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/go-hclog"
@@ -213,5 +214,31 @@ func (g *InstanceGroup) Decrease(ctx context.Context, instances []string) ([]str
 }
 
 func (g *InstanceGroup) Shutdown(ctx context.Context) error {
-	return fmt.Errorf("Not implemented")
+	remaining, err := g.client.GetVMs(ctx, g.log)
+	if err != nil {
+		return err
+	}
+
+	instances := make([]string, 0, len(remaining))
+	for name := range remaining {
+		instances = append(instances, name)
+	}
+
+	deleted, err := g.client.DeleteVMs(ctx, instances, g.log)
+	if err != nil {
+		return err
+	}
+
+	if len(deleted) == len(instances) {
+		return nil
+	}
+
+	var notDeleted []string
+	for _, name := range instances {
+		if !slices.Contains(deleted, name) {
+			notDeleted = append(notDeleted, name)
+		}
+	}
+
+	return fmt.Errorf("failed to delete vm instances: %s", strings.Join(notDeleted, ","))
 }

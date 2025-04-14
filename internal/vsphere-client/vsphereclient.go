@@ -127,6 +127,8 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 
 	if c.namePrefix == "" {
 		c.namePrefix = uuid.NewString()
+	} else {
+		c.namePrefix = fmt.Sprintf("%s-%s", c.namePrefix, uuid.NewString())
 	}
 
 	return &c, nil
