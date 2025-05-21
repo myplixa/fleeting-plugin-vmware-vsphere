@@ -13,3 +13,6 @@
 
 # environment
 .envrc
+
+# build artifacts
+out/*
