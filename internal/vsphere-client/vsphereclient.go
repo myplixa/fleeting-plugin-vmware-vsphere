@@ -35,7 +35,7 @@ type client struct {
 	client     *govmomi.Client
 	datacenter types.ManagedObjectReference
 	pool       types.ManagedObjectReference
-	host       types.ManagedObjectReference
+	host       *types.ManagedObjectReference
 	datastore  types.ManagedObjectReference
 	folder     types.ManagedObjectReference
 	template   types.ManagedObjectReference
@@ -96,15 +96,6 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 		}
 
 		c.folder = folder.Reference()
-	}
-
-	if c.host == (types.ManagedObjectReference{}) {
-		host, err := finder.DefaultHostSystem(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		c.host = host.Reference()
 	}
 
 	if c.pool == (types.ManagedObjectReference{}) {
@@ -172,12 +163,13 @@ func WithPool(pool string) ClientOption {
 
 func WithHost(host string) ClientOption {
 	return func(ctx context.Context, c *client, finder *find.Finder) error {
-		host, err := finder.HostSystem(ctx, host)
+		hostSystem, err := finder.HostSystem(ctx, host)
 		if err != nil {
 			return fmt.Errorf("failed to find the host %s: %w", host, err)
 		}
 
-		c.host = host.Reference()
+		ref := hostSystem.Reference()
+		c.host = &ref
 		return nil
 	}
 }
@@ -371,7 +363,7 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 		Location: types.VirtualMachineRelocateSpec{
 			Folder:    &c.folder,
 			Pool:      &c.pool,
-			Host:      &c.host,
+			Host:      c.host,
 			Datastore: &c.datastore,
 		},
 		Config:   config,
