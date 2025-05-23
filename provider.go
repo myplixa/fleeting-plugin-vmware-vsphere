@@ -62,9 +62,8 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 		options = append(options, vsphereclient.WithDatastore(g.Datastore))
 	}
 
-	if g.Name != "" {
-		options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
-	}
+	// Name is required
+	options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
 
 	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, g.Username, g.Password, options...)
 	if err != nil {

@@ -16,6 +16,7 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `vsphere_url` | string | Yes | URL of the vCenter server |
 | `template` | string | Yes | Path to the VM template used for cloning instances |
 | `allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
+| `name` | string | Yes | Identifier for the instance group, used as prefix for VM names |
 | `username` | string | No | Username to access the vCenter server |
 | `password` | string | No | Password to access the vCenter server |
 | `folder` | string | No | Destination folder where VMs will be created |
@@ -23,7 +24,6 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `host` | string | No | Target ESXi host for the cloned VMs |
 | `datastore` | string | No | Datastore where the cloned VMs will be located |
 | `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
-| `name` | string | No | Identifier for the instance group, used as prefix for VM names |
 
 If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
 
@@ -39,10 +39,7 @@ The plugin uses the following defaults for VM connections:
 
 ## VM Naming Convention
 
-The plugin uses the following naming convention for created virtual machines:
-
-* If a `name` parameter is provided: `{name}-{InstanceGroupUUID}-{VMUUID}`
-* If no `name` parameter is provided: `{InstanceGroupUUID}-{VMUUID}`
+The plugin uses the following naming convention for created virtual machines: `{name}-{VMUUID}`
 
 ## VM Provisioning
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
@@ -133,4 +134,50 @@ func setupTestEnv(t *testing.T, url *url.URL) error {
 	}
 
 	return nil
+}
+
+func TestProvisioning_MissingName(t *testing.T) {
+	model := simulator.VPX()
+	defer model.Remove()
+
+	model.Datacenter = 1
+	model.Host = 1
+	model.Datastore = 1
+	model.Cluster = 1
+	model.Pool = 1
+	model.Folder = 0
+
+	err := model.Create()
+	if err != nil {
+		t.Fatalf("simulating vsphere: %s", err)
+	}
+
+	s := model.Service.NewServer()
+	defer s.Close()
+
+	err = setupTestEnv(t, s.URL)
+	if err != nil {
+		t.Fatalf("setting up test environment: %s", err)
+	}
+
+	ig := InstanceGroup{
+		VsphereUrl:         s.URL.String(),
+		Template:           templateName,
+		Folder:             vmFolder,
+		Datacenter:         datacenter,
+		Host:               host,
+		ResourcePool:       pool,
+		Datastore:          datastore,
+		InsecureConnection: true,
+		Name:               "", // Intentionally empty
+	}
+
+	settings := provider.Settings{
+		ConnectorConfig: provider.ConnectorConfig{
+			Timeout: 10 * time.Minute,
+		},
+	}
+
+	_, err = ig.Init(context.Background(), nil, settings)
+	require.Error(t, err, "expected error when InstanceGroup name is empty, got nil")
 }

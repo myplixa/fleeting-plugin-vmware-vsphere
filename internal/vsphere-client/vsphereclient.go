@@ -116,12 +116,6 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 		c.datastore = ds.Reference()
 	}
 
-	if c.namePrefix == "" {
-		c.namePrefix = uuid.NewString()
-	} else {
-		c.namePrefix = fmt.Sprintf("%s-%s", c.namePrefix, uuid.NewString())
-	}
-
 	return &c, nil
 }
 
@@ -188,6 +182,9 @@ func WithDatastore(datastore string) ClientOption {
 
 func WithVMNamePrefix(prefix string) ClientOption {
 	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		if len(prefix) == 0 {
+			return errors.New("instance group name is required")
+		}
 		c.namePrefix = prefix
 		return nil
 	}
