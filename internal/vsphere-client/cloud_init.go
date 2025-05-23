@@ -19,6 +19,10 @@ type user struct {
 	SshKeys      []string `yaml:"ssh_authorized_keys,omitempty"`
 }
 
+type cloudInitConfig struct {
+	Users []user `yaml:"users"`
+}
+
 func (c *client) encodeUserData(username string, pubKey []byte) ([]types.BaseOptionValue, error) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
@@ -31,15 +35,17 @@ func (c *client) encodeUserData(username string, pubKey []byte) ([]types.BaseOpt
 		return nil, fmt.Errorf("compressing cloud-init user data: %w", err)
 	}
 
-	data := []user{
-		{
-			Name:         username,
-			PrimaryGroup: username,
-			Sudo:         "ALL=(ALL) NOPASSWD:ALL",
-			Groups:       "sudo, wheel",
-			LockPasswd:   false,
-			SshKeys: []string{
-				string(pubKey),
+	data := cloudInitConfig{
+		Users: []user{
+			{
+				Name:         username,
+				PrimaryGroup: username,
+				Sudo:         "ALL=(ALL) NOPASSWD:ALL",
+				Groups:       "sudo, wheel",
+				LockPasswd:   false,
+				SshKeys: []string{
+					string(pubKey),
+				},
 			},
 		},
 	}
@@ -60,7 +66,7 @@ func (c *client) encodeUserData(username string, pubKey []byte) ([]types.BaseOpt
 		},
 		&types.OptionValue{
 			Key:   "guestinfo.userdata.encoding",
-			Value: "gzip+base64",
+			Value: "base64",
 		},
 	}
 
