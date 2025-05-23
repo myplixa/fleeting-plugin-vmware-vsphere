@@ -21,7 +21,7 @@ func setupFakeClient(t *testing.T, setup func(client *fake.Client)) *InstanceGro
 		newClient = oldClient
 	})
 
-	newClient = func(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...vsphereclient.ClientOption) (vsphereclient.Client, error) {
+	newClient = func(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...vsphereclient.ClientOption) (vsphereclient.Client, error) {
 		client := fake.New()
 
 		if setup != nil {

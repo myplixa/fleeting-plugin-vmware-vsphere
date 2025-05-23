@@ -16,6 +16,8 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `vsphere_url` | string | Yes | URL of the vCenter server |
 | `template` | string | Yes | Path to the VM template used for cloning instances |
 | `allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
+| `username` | string | No | Username to access the vCenter server |
+| `password` | string | No | Password to access the vCenter server |
 | `folder` | string | No | Destination folder where VMs will be created |
 | `datacenter` | string | No | Datacenter where VMs will be created |
 | `host` | string | No | Target ESXi host for the cloned VMs |

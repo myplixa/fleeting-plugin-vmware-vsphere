@@ -42,13 +42,13 @@ type client struct {
 	namePrefix string
 }
 
-func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, options ...ClientOption) (Client, error) {
-	url, err := url.Parse(vsphereUrl)
+func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...ClientOption) (Client, error) {
+	targetURL, err := parseURL(vsphereUrl, username, password)
 	if err != nil {
 		return nil, err
 	}
 
-	gc, err := govmomi.NewClient(ctx, url, insecure)
+	gc, err := govmomi.NewClient(ctx, targetURL, insecure)
 	if err != nil {
 		return nil, err
 	}
@@ -610,4 +610,18 @@ func (c *client) GuestOs(ctx context.Context) (string, error) {
 	}
 
 	return vmMo.Config.GuestId, nil
+}
+
+// parseURL parses the given URL and combines the result with the given username and password.
+// It ensures the username and password are encoded in a url-safe way.
+func parseURL(vsphereUrl string, username string, password string) (*url.URL, error) {
+	serverURL, err := url.Parse(vsphereUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(username) > 0 && len(password) > 0 {
+		serverURL.User = url.UserPassword(username, password)
+	}
+	return serverURL, nil
 }

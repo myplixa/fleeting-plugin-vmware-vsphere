@@ -20,6 +20,8 @@ var newClient = vsphereclient.NewClient
 
 type InstanceGroup struct {
 	VsphereUrl         string `json:"vsphere_url"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
 	Template           string `json:"template"`
 	Folder             string `json:"folder"`
 	Datacenter         string `json:"datacenter"`
@@ -64,7 +66,7 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 		options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
 	}
 
-	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, options...)
+	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, g.Username, g.Password, options...)
 	if err != nil {
 		return provider.ProviderInfo{}, err
 	}
