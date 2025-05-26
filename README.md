@@ -1,13 +1,14 @@
 # Fleeting plugin for VMware vSphere
 
-This is a fleeting plugin for VMware vSphere environments.
-The vSphere plugin allows GitLab Runner to provision virtual machines from templates,
-enabling CI/CD jobs to be executed on dynamically created instances in your
-vSphere infrastructure.
+This is a fleeting plugin for VMware vSphere environments. The vSphere plugin
+allows GitLab Runner to provision virtual machines from templates, enabling
+CI/CD jobs to be executed on dynamically created instances in your vSphere
+infrastructure.
 
 ## Configuration
 
-The plugin requires configuration for both the vSphere environment and VM connection details.
+The plugin requires configuration for both the vSphere environment and VM
+connection details.
 
 ### Provider Configuration
 
@@ -25,7 +26,8 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `datastore` | string | No | Datastore where the cloned VMs will be located |
 | `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
 
-If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
+If optional parameters are not specified, the plugin will attempt to use default
+values from the vSphere environment.
 
 ### Connector Configuration
 
@@ -37,9 +39,15 @@ The plugin uses the following defaults for VM connections:
 | Protocol | `"ssh"` for Linux VMs |
 | OS Detection | Auto-detected from VM, defaults to Linux if unknown |
 
+Note: When using
+[Docker Autoscaler](https://docs.gitlab.com/runner/executors/docker_autoscaler/),
+to enable Runner Manager’s access to the Docker socket on the VM, the user must
+be part of the `docker` group.
+
 ## VM Naming Convention
 
-The plugin uses the following naming convention for created virtual machines: `{name}-{VMUUID}`
+The plugin uses the following naming convention for created virtual machines:
+`{name}-{VMUUID}`.
 
 ## VM Provisioning
 

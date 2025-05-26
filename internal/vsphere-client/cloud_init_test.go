@@ -39,4 +39,5 @@ func TestEncodeUserData(t *testing.T) {
 	require.Contains(t, str, username, "username missing in cloud-init YAML")
 	require.Contains(t, str, string(pubKey), "ssh key missing in cloud-init YAML")
 	require.Contains(t, str, "users:", "users key missing in cloud-init YAML")
+	require.Contains(t, str, "sudo, wheel", "required groups missing in cloud-init YAML")
 }
