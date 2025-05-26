@@ -44,11 +44,6 @@ Note: When using
 to enable Runner Manager’s access to the Docker socket on the VM, the user must
 be part of the `docker` group.
 
-## VM Naming Convention
-
-The plugin uses the following naming convention for created virtual machines:
-`{name}-{VMUUID}`.
-
 ## VM Provisioning
 
 ### Linux VMs
