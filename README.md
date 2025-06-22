@@ -1,6 +1,6 @@
 # Fleeting plugin for VMware vSphere
 
-This is a fleeting plugin for VMware vSphere environments. The vSphere plugin
+This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for VMware vSphere environments. The vSphere plugin
 allows GitLab Runner to provision virtual machines from templates, enabling
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
