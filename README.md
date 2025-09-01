@@ -1,9 +1,20 @@
 # Fleeting plugin for VMware vSphere
 
-This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for VMware vSphere environments. The vSphere plugin
-allows GitLab Runner to provision virtual machines from templates, enabling
+This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for VMware vSphere environments. The vSphere plugin allows GitLab Runner to provision virtual machines from templates, enabling
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
+
+## Installation
+
+This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting.html) for complete installation and configuration instructions.
+
+When configuring the plugin, use:
+
+```toml
+[[runners]]
+  [runners.fleeting]
+    plugin = "registry.gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere:latest"
+```
 
 ## Configuration
 
@@ -41,8 +52,7 @@ The plugin uses the following defaults for VM connections:
 
 Note: When using
 [Docker Autoscaler](https://docs.gitlab.com/runner/executors/docker_autoscaler/),
-to enable Runner Manager’s access to the Docker socket on the VM, the user must
-be part of the `docker` group.
+to enable Runner Manager’s access to the Docker socket on the VM, the user must be part of the `docker` group.
 
 ## VM Provisioning
 
@@ -56,3 +66,14 @@ be part of the `docker` group.
 
 * Provisioning credentials is not supported for Windows VMs
 * Use static credentials with username and password
+
+## Contributing
+
+Contributions to this plugin are welcome and appreciated. You can help in several ways:
+
+* Reporting issues you encounter
+* Providing feedback from testing in vSphere environments
+* Submitting bug fixes and improving documentation
+* Suggesting new features or capabilities
+
+Please open an issue or merge request in this repository to contribute.
