@@ -18,7 +18,7 @@ As the maintainer, I don't currently have direct access to vSphere infrastructur
 
 ## Installation
 
-This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting.html/#install-with-the-oci-registry-distribution) for complete installation and configuration instructions.
+This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting/#install-with-the-oci-registry-distribution) for complete installation and configuration instructions.
 
 When configuring, use the following plugin reference:
 
