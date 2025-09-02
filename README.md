@@ -4,22 +4,28 @@ This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
 
+## Testing Status
+
+This plugin has been:
+
+- [x] Validated against the [govmomi vcsim](https://github.com/vmware/govmomi/blob/main/vcsim/README.md) simulator
+- [x] Confirmed by community members in real vSphere environments
+
+As the maintainer, I don't currently have direct access to vSphere infrastructure. Community testing and feedback are welcome to further improve reliability across different setups.
+
 ## Installation
 
-This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting.html) for complete installation and configuration instructions.
+This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting.html/#install-with-the-oci-registry-distribution) for complete installation and configuration instructions.
 
-When configuring the plugin, use:
+When configuring, use the following plugin reference:
 
 ```toml
-[[runners]]
-  [runners.fleeting]
-    plugin = "registry.gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere:latest"
+plugin = "registry.gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere:latest"
 ```
 
 ## Configuration
 
-The plugin requires configuration for both the vSphere environment and VM
-connection details.
+The plugin requires configuration for both the vSphere environment and VM connection details.
 
 ### Provider Configuration
 
@@ -37,8 +43,7 @@ connection details.
 | `datastore` | string | No | Datastore where the cloned VMs will be located |
 | `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
 
-If optional parameters are not specified, the plugin will attempt to use default
-values from the vSphere environment.
+If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
 
 ### Connector Configuration
 
@@ -58,22 +63,26 @@ to enable Runner Manager’s access to the Docker socket on the VM, the user mus
 
 ### Linux VMs
 
-* Provisioning credentials is supported via cloud-init
-* The template VM must be configured with cloud-init
-* User data with username and SSH public key is injected into cloned VMs
+- Provisioning credentials is supported via cloud-init
+- The template VM must be configured with cloud-init
+- User data with username and SSH public key is injected into cloned VMs
 
 ### Windows VMs
 
-* Provisioning credentials is not supported for Windows VMs
-* Use static credentials with username and password
+- Provisioning credentials is not supported for Windows VMs
+- Use static credentials with username and password
 
 ## Contributing
 
 Contributions to this plugin are welcome and appreciated. You can help in several ways:
 
-* Reporting issues you encounter
-* Providing feedback from testing in vSphere environments
-* Submitting bug fixes and improving documentation
-* Suggesting new features or capabilities
+- Reporting issues you encounter
+- Providing feedback from testing in vSphere environments
+- Submitting bug fixes and improving documentation
+- Suggesting new features or capabilities
 
 Please open an issue or merge request in this repository to contribute.
+
+## Acknowledgements
+
+Special thanks to Olivier Sechet (@osechet) for testing the plugin and contributing bug fixes.
