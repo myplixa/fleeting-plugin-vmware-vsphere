@@ -4,6 +4,9 @@ This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
 
+> [!note]
+> This is a community maintained plugin and is not officially supported by GitLab or VMware.
+
 ## Testing Status
 
 This plugin has been:
