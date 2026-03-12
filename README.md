@@ -35,7 +35,7 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `vsphere_url` | string | Yes | URL of the vCenter server |
-| `template` | string | Yes | Path to the VM template used for cloning instances |
+| `template` | string | Yes | Path to the VM template (full clone) or VM with snapshots (linked clone) |
 | `allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
 | `name` | string | Yes | Identifier for the instance group, used as prefix for VM names |
 | `username` | string | No | Username to access the vCenter server |
@@ -45,6 +45,8 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `host` | string | No | Target ESXi host for the cloned VMs |
 | `datastore` | string | No | Datastore where the cloned VMs will be located |
 | `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
+| `linked_clone` | bool | No | Use linked clone instead of full clone (default: `false`) |
+| `snapshot` | string | No | Snapshot name for linked clones. If omitted, the current snapshot is used |
 
 If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
 
@@ -61,6 +63,32 @@ The plugin uses the following defaults for VM connections:
 Note: When using
 [Docker Autoscaler](https://docs.gitlab.com/runner/executors/docker_autoscaler/),
 to enable Runner Manager’s access to the Docker socket on the VM, the user must be part of the `docker` group.
+
+## Clone Strategies
+
+### Full Clone (default)
+
+By default, the plugin creates full clones from a vSphere template. This copies the entire disk, which is reliable but can be slow for large VMs.
+
+### Linked Clone
+
+Linked clones use a snapshot-based delta disk instead of copying the entire disk, resulting in significantly faster clone operations and reduced storage usage.
+
+To use linked clones:
+
+1. Create a VM in vSphere and configure it as desired
+2. Take a snapshot (e.g., `Base_1`)
+3. Configure the plugin:
+
+```toml
+[runners.autoscaler.plugin_config]
+  template = "my-source-vm"
+  linked_clone = true
+  snapshot = "Base_1"  # optional: omit to use the current snapshot
+```
+
+> [!note]
+> For linked clones, the `template` parameter must point to a VM with at least one snapshot.
 
 ## VM Provisioning
 

@@ -32,14 +32,17 @@ type Client interface {
 type ClientOption func(ctx context.Context, c *client, finder *find.Finder) error
 
 type client struct {
-	client     *govmomi.Client
-	datacenter types.ManagedObjectReference
-	pool       types.ManagedObjectReference
-	host       *types.ManagedObjectReference
-	datastore  types.ManagedObjectReference
-	folder     types.ManagedObjectReference
-	template   types.ManagedObjectReference
-	namePrefix string
+	client       *govmomi.Client
+	datacenter   types.ManagedObjectReference
+	pool         types.ManagedObjectReference
+	host         *types.ManagedObjectReference
+	datastore    types.ManagedObjectReference
+	folder       types.ManagedObjectReference
+	template     types.ManagedObjectReference
+	namePrefix   string
+	linkedClone  bool
+	snapshotName string
+	snapshot     *types.ManagedObjectReference
 }
 
 func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...ClientOption) (Client, error) {
@@ -79,15 +82,28 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 
 	templateVM, err := finder.VirtualMachine(ctx, template)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find source template %s: %w", template, err)
+		return nil, fmt.Errorf("failed to find source VM/template %s: %w", template, err)
 	}
 
-	if isTemp, err := templateVM.IsTemplate(ctx); err != nil {
+	isTemplate, err := templateVM.IsTemplate(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("failed to confirm %s is a template: %w", template, err)
-	} else if !isTemp {
+	}
+	if c.linkedClone && isTemplate {
+		return nil, fmt.Errorf("linked clone requires a VM with snapshots, but %s is a template", template)
+	}
+	if !c.linkedClone && !isTemplate {
 		return nil, fmt.Errorf("%s should be a template", template)
 	}
 	c.template = templateVM.Reference()
+
+	if c.linkedClone {
+		snapshot, err := c.resolveSnapshot(ctx, c.template)
+		if err != nil {
+			return nil, err
+		}
+		c.snapshot = snapshot
+	}
 
 	if c.folder == (types.ManagedObjectReference{}) {
 		folder, err := finder.DefaultFolder(ctx)
@@ -186,6 +202,14 @@ func WithVMNamePrefix(prefix string) ClientOption {
 			return errors.New("instance group name is required")
 		}
 		c.namePrefix = prefix
+		return nil
+	}
+}
+
+func WithLinkedClone(snapshotName string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		c.linkedClone = true
+		c.snapshotName = snapshotName
 		return nil
 	}
 }
@@ -367,6 +391,11 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 		PowerOn:  false, // This field is ignored when cloning from a template
 		Template: false,
 	}
+
+	if c.linkedClone {
+		spec.Snapshot = c.snapshot
+		spec.Location.DiskMoveType = string(types.VirtualMachineRelocateDiskMoveOptionsCreateNewChildDiskBacking)
+	}
 	srcVM := object.NewVirtualMachine(c.client.Client, src)
 
 	id := uuid.New()
@@ -418,6 +447,40 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 	}
 
 	return targetName, nil
+}
+
+func (c *client) resolveSnapshot(ctx context.Context, vmRef types.ManagedObjectReference) (*types.ManagedObjectReference, error) {
+	vm := object.NewVirtualMachine(c.client.Client, vmRef)
+
+	var vmMo mo.VirtualMachine
+	err := vm.Properties(ctx, vm.Reference(), []string{"snapshot"}, &vmMo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve snapshot info: %w", err)
+	}
+
+	if vmMo.Snapshot == nil {
+		return nil, fmt.Errorf("linked clone requires the source VM to have at least one snapshot")
+	}
+
+	if c.snapshotName == "" {
+		if vmMo.Snapshot.CurrentSnapshot == nil {
+			return nil, fmt.Errorf("no current snapshot found on source VM")
+		}
+		return vmMo.Snapshot.CurrentSnapshot, nil
+	}
+
+	queue := vmMo.Snapshot.RootSnapshotList
+	for len(queue) > 0 {
+		s := queue[0]
+		queue = queue[1:]
+		if s.Name == c.snapshotName {
+			ref := s.Snapshot
+			return &ref, nil
+		}
+		queue = append(queue, s.ChildSnapshotList...)
+	}
+
+	return nil, fmt.Errorf("snapshot '%s' not found on source VM", c.snapshotName)
 }
 
 func (c *client) powerOnVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {

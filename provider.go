@@ -29,6 +29,8 @@ type InstanceGroup struct {
 	Datastore          string `json:"datastore"`
 	ResourcePool       string `json:"resource_pool"`
 	InsecureConnection bool   `json:"allow_insecure_connection"`
+	LinkedClone        bool   `json:"linked_clone"`
+	Snapshot           string `json:"snapshot"`
 	Name               string `json:"name"`
 
 	size     uint
@@ -64,6 +66,10 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 
 	// Name is required
 	options = append(options, vsphereclient.WithVMNamePrefix(g.Name))
+
+	if g.LinkedClone {
+		options = append(options, vsphereclient.WithLinkedClone(g.Snapshot))
+	}
 
 	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, g.Username, g.Password, options...)
 	if err != nil {
