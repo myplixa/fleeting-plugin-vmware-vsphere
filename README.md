@@ -116,4 +116,7 @@ Please open an issue or merge request in this repository to contribute.
 
 ## Acknowledgements
 
-Special thanks to Olivier Sechet (@osechet) for testing the plugin and contributing bug fixes.
+Thanks to community members who helped test and improve this plugin:
+
+- Olivier Sechet (@osechet) for testing the plugin and contributing bug fixes
+- Mathieu Wolf (@mathieu.wolf) for adding linked clone support and validating it on real vSphere infrastructure
