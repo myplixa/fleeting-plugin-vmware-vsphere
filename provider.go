@@ -220,6 +220,14 @@ func (g *InstanceGroup) Decrease(ctx context.Context, instances []string) ([]str
 	return deleted, nil
 }
 
+// Heartbeat is typically called by the taskscaler before connecting to the instance.
+// TODO: Implement check related to VM health state (e.g., power state, guest heartbeat).
+//
+// HINT: Too many API calls should be avoided, as ConnectInfo is called subsequently.
+func (g *InstanceGroup) Heartbeat(ctx context.Context, id string) error {
+	return nil
+}
+
 func (g *InstanceGroup) Shutdown(ctx context.Context) error {
 	remaining, err := g.client.GetVMs(ctx, g.log)
 	if err != nil {

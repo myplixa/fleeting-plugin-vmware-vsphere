@@ -1,28 +1,29 @@
 module gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere
 
-go 1.24.1
+go 1.25.0
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.3
-	github.com/vmware/govmomi v0.49.0
-	golang.org/x/crypto v0.37.0
+	github.com/vmware/govmomi v0.53.0
+	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
+	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/ChrisTrenkamp/goxpath v0.0.0-20210404020558-97928f7e12b6 // indirect
 	github.com/bodgit/ntlmssp v0.0.0-20240506230425-31973bb52d9b // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-plugin v1.6.1 // indirect
+	github.com/hashicorp/go-plugin v1.7.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
-	github.com/hashicorp/yamux v0.1.1 // indirect
+	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
@@ -30,25 +31,29 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/masterzen/simplexml v0.0.0-20190410153822-31eea3082786 // indirect
-	github.com/masterzen/winrm v0.0.0-20240702205601-3fad6e106085 // indirect
-	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
-	github.com/oklog/run v1.1.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/masterzen/winrm v0.0.0-20250927112105-5f8e6c707321 // indirect
+	github.com/oklog/run v1.2.0 // indirect
+	github.com/oklog/ulid/v2 v2.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/sebest/xff v0.0.0-20210106013422-671bd2870b3a // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
-	golang.org/x/mod v0.21.0 // indirect
-	golang.org/x/net v0.25.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect
-	google.golang.org/grpc v1.64.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	gitlab.com/gitlab-org/go/reopen v1.0.0 // indirect
+	gitlab.com/gitlab-org/labkit v1.43.0 // indirect
+	golang.org/x/mod v0.34.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260311181403-84a4fc48630c // indirect
+	google.golang.org/grpc v1.79.2 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (
-	github.com/fatih/color v1.17.0 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/fatih/color v1.18.0 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/stretchr/testify v1.10.0
-	gitlab.com/gitlab-org/fleeting/fleeting v0.0.0-20250331223446-30f1dda488b1
-	golang.org/x/sys v0.32.0 // indirect
+	github.com/stretchr/testify v1.11.1
+	gitlab.com/gitlab-org/fleeting/fleeting v0.0.0-20260304132817-7f6dd45d4237
+	golang.org/x/sys v0.42.0 // indirect
 )

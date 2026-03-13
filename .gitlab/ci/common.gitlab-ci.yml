@@ -3,7 +3,7 @@ default:
     - saas-linux-small-amd64
 
 variables:
-  GO_VERSION: 1.24.1
+  GO_VERSION: 1.25.7
   CGO_ENABLED: 0
   OUT_PATH: out
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/releases"
