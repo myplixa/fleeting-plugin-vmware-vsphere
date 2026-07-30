@@ -69,6 +69,8 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 		client: gc,
 	}
 
+	// WithDatacenter scopes the finder, so it must run before any option that
+	// resolves an inventory path. InstanceGroup.Init already orders it first.
 	for _, option := range options {
 		err := option(ctx, &c, finder)
 		if err != nil {
@@ -168,6 +170,13 @@ func WithDatacenter(datacenter string) ClientOption {
 		if err != nil {
 			return fmt.Errorf("failed to find the datacenter '%s': %w", datacenter, err)
 		}
+
+		// Scope the finder to this datacenter. Without this, every later lookup
+		// (folder, host, resource pool, datastore, template) runs without a
+		// datacenter context, so relative paths fail with errors such as
+		// "failed to find the resource pool <nil>: please specify a datacenter"
+		// and users are forced to spell out absolute inventory paths.
+		finder.SetDatacenter(ds)
 
 		c.datacenter = ds.Reference()
 		return nil
@@ -707,6 +716,51 @@ func (c *client) getVMState(ctx context.Context, vmMOR types.ManagedObjectRefere
 	return provider.StateCreating, nil
 }
 
+// pickGuestIP returns a usable address from the NICs reported by VMware Tools,
+// preferring IPv4 and falling back to a non-link-local IPv6 address.
+//
+// Three problems are handled here:
+//
+//  1. Link-local and loopback addresses are not usable by the runner. A Windows
+//     guest with IPv6 enabled typically reports its fe80::/10 address first, and
+//     returning it leaves the runner dialing an address it can never reach: the
+//     job hangs on "Dialing instance..." with no error to explain why.
+//  2. IPv4 is preferred because it is what most environments actually route. A
+//     non-link-local IPv6 address is only used when no IPv4 address exists.
+//  3. Selection stops at the first usable address. Breaking out of the inner
+//     loop alone let a later NIC overwrite an address that was already good, so
+//     on a multi-NIC guest the last NIC won.
+//
+// net.ParseIP returns nil for malformed input, so the parse result is checked
+// directly rather than comparing its String() against a literal.
+func pickGuestIP(nics []types.GuestNicInfo) string {
+	var fallbackIP string
+
+	for _, nic := range nics {
+		if nic.MacAddress == "" || nic.IpConfig == nil {
+			continue
+		}
+
+		for _, ip := range nic.IpAddress {
+			parsed := net.ParseIP(ip)
+			if parsed == nil || parsed.IsUnspecified() || parsed.IsLoopback() ||
+				parsed.IsLinkLocalUnicast() || parsed.IsLinkLocalMulticast() {
+				continue
+			}
+
+			if parsed.To4() != nil {
+				return parsed.String()
+			}
+
+			if fallbackIP == "" {
+				fallbackIP = parsed.String()
+			}
+		}
+	}
+
+	return fallbackIP
+}
+
 func (c *client) NetInfo(ctx context.Context, vmName string) (string, error) {
 	folder := object.NewFolder(c.client.Client, c.folder)
 
@@ -747,21 +801,7 @@ func (c *client) NetInfo(ctx context.Context, vmName string) (string, error) {
 		return "", fmt.Errorf("failed to fetch the vm guest os net info")
 	}
 
-	var internalIP string
-	for _, nic := range vmNetInfo.Guest.Net {
-		if nic.MacAddress == "" || nic.IpConfig == nil {
-			continue
-		}
-
-		for _, ip := range nic.IpAddress {
-			if vmip := net.ParseIP(ip).String(); vmip == "nil" {
-				continue
-			} else {
-				internalIP = vmip
-				break
-			}
-		}
-	}
+	internalIP := pickGuestIP(vmNetInfo.Guest.Net)
 
 	if internalIP == "" {
 		return "", fmt.Errorf("failed to get ip address of vm '%s'", vmName)
