@@ -29,6 +29,114 @@ When configuring, use the following plugin reference:
 plugin = "registry.gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere:latest"
 ```
 
+## Full Control Runner Example
+
+A complete `config.toml` for a GitLab Runner "control" host (the one running `gitlab-runner` itself) using `docker-autoscaler` with this plugin, covering every parameter — both the ones this plugin defines and the surrounding GitLab Runner/Fleeting settings needed to actually use it:
+
+```toml
+concurrent = 20
+check_interval = 3
+
+[[runners]]
+  name = "ci-vm-small"
+  url = "https://gitlab.example.com/"
+  token = "glrt-XXXXXXXXXXXXXXXXXXXX"
+  executor = "docker-autoscaler"
+  limit = 10
+  tags = ["ci-vm-small"]
+  run_untagged = false
+
+  [runners.docker]
+    image = "example.registry/ci-default:latest"
+    privileged = false
+    volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
+
+  [runners.autoscaler]
+    plugin = "fleeting-plugin-vsphere"
+    capacity_per_instance = 2
+    max_use_count = 10
+    max_instances = 5
+
+    [runners.autoscaler.connector_config]
+      username = "fleeting"
+      use_external_addr = false
+
+    [[runners.autoscaler.policy]]
+      idle_count = 1
+      idle_time = "5m0s"
+      preemptive_mode = false
+
+    [runners.autoscaler.plugin_config]
+      vsphere_url = "https://vcenter.example.com/sdk"
+      username = "svc-fleeting@example.com"
+      password = "..."
+      allow_insecure_connection = false
+      name = "ci-vm-small"
+      template = "vm-template"
+      datacenter = "DC1"
+      folder = "/DC1/vm/ci"
+      host = "/DC1/host/cluster1/esx-01.example.com"
+      resource_pool = "/DC1/host/cluster1/esx-01.example.com/Resources"
+      datastore = "esx-01-datastore"
+      linked_clone = false
+      num_cpus = 2
+      memory_mb = 2048
+      disk_size_gb = 20
+```
+
+### Parameter Reference
+
+| Section | Parameter | Description |
+|---|---|---|
+| top-level | `concurrent` | Total job slots across *all* `[[runners]]` sections on this control host combined |
+| top-level | `check_interval` | How often (seconds) the runner manager polls GitLab for new jobs |
+| `[[runners]]` | `name` | Display name for this runner registration in the GitLab UI |
+| `[[runners]]` | `url` / `token` | GitLab instance URL and the runner authentication token, created via *Settings → CI/CD → Runners → New runner* |
+| `[[runners]]` | `executor` | Must be `"docker-autoscaler"` to use Fleeting-managed instances with Docker |
+| `[[runners]]` | `limit` | Max jobs *this runner section* will pull from GitLab at once. Should be ≥ `capacity_per_instance × max_instances`, or it becomes the real ceiling regardless of how much the autoscaler could otherwise provide |
+| `[[runners]]` | `tags` / `run_untagged` | Which jobs get routed to this runner. With multiple tiers (e.g. small/large), set `run_untagged = false` on each so a job without a matching tag doesn't land on an arbitrary tier |
+| `[runners.docker]` | `image` | Default job container image if `.gitlab-ci.yml` doesn't specify one |
+| `[runners.docker]` | `volumes` | Bind mounts into every job container. `/var/run/docker.sock:/var/run/docker.sock` is only needed if jobs themselves run `docker build`/`docker run` (Docker-in-Docker via the host socket) |
+| `[runners.autoscaler]` | `plugin` | The Fleeting plugin binary/image name — `fleeting-plugin-vsphere` for a manually-installed binary |
+| `[runners.autoscaler]` | `capacity_per_instance` | Concurrent jobs allowed *on one VM* — they share that VM's CPU/RAM/Docker daemon, no isolation between them |
+| `[runners.autoscaler]` | `max_use_count` | Total jobs a VM may serve over its lifetime before being replaced. A ceiling, not a guarantee — see [How Parameters Interact](#how-parameters-interact) |
+| `[runners.autoscaler]` | `max_instances` | Max VMs this runner section may have running at once |
+| `[runners.autoscaler.connector_config]` | `username` | User the plugin connects as. Must match what the template's cloud-init actually creates (`"fleeting"` by default — see [Connector Configuration](#connector-configuration)) |
+| `[runners.autoscaler.connector_config]` | `use_external_addr` | Whether to connect over the VM's external/public address instead of its internal one. `false` for on-prem vSphere with no public IPs |
+| `[[runners.autoscaler.policy]]` | `idle_count` | How many *idle* (no job running) VMs to keep on standby for instant job pickup. `0` = pure scale-to-zero |
+| `[[runners.autoscaler.policy]]` | `idle_time` | How long idle VMs beyond active demand are kept before being torn down |
+| `[[runners.autoscaler.policy]]` | `preemptive_mode` | Whether to provision instances ahead of confirmed demand |
+| `[runners.autoscaler.plugin_config]` | *(all fields)* | This plugin's own settings — see [Provider Configuration](#provider-configuration) below for the complete list |
+
+### How Parameters Interact
+
+**Concurrency ceiling** — `limit` must cover what the autoscaler can actually deliver, or it's the real bottleneck:
+
+```
+capacity_per_instance = 2
+max_instances         = 5
+→ up to 10 concurrent jobs are possible
+
+limit = 10   # must be at least 10, or GitLab Runner won't request that many
+```
+
+**`max_use_count` only matters if `idle_count > 0`** — with no idle capacity kept warm, a VM is scaled down as soon as it has zero running jobs, regardless of unused `max_use_count` budget:
+
+```
+idle_count = 0, idle_time = "0s"
+→ a VM that ran 2 of its allowed max_use_count = 10 jobs, then went idle,
+  is torn down almost immediately — the other 8 "uses" are never spent.
+
+idle_count = 1, idle_time = "5m0s"
+→ 1 VM is kept warm for 5 minutes after going idle, so back-to-back jobs
+  arriving within that window reuse it instead of waiting for a fresh clone,
+  actually working toward max_use_count.
+```
+
+**One template, multiple hardware tiers** — `num_cpus`/`memory_mb`/`disk_size_gb` let separate `[[runners]]` sections (different `name`/`tags`) share the same `template`, instead of maintaining one template per size (see [Resource Sizing](#resource-sizing)).
+
+**VM naming ties `host` and `name` together** — two tiers pointed at different `host` values but the same `name` would produce distinguishable clone names (e.g. `esx-01-ci-vm-small-a1b2c3d4` vs `esx-02-ci-vm-small-f9e8d7c6`), while also being how the plugin tells its own instances apart from everything else in the destination `folder` (see [VM Naming](#vm-naming)).
+
 ## Configuration
 
 The plugin requires configuration for both the vSphere environment and VM connection details.
