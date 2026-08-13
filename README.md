@@ -1,5 +1,8 @@
 # Fleeting plugin for VMware vSphere
 
+> [!note]
+> This is a fork of [santhanuv/fleeting-plugin-vmware-vsphere](https://gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere) adding `num_cpus`/`memory_mb`/`disk_size_gb` clone-time resource overrides (see [Resource Sizing](#resource-sizing)). `upstream` remote points at the original repository.
+
 This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for VMware vSphere environments. The vSphere plugin allows GitLab Runner to provision virtual machines from templates, enabling
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
@@ -47,8 +50,35 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
 | `linked_clone` | bool | No | Use linked clone instead of full clone (default: `false`) |
 | `snapshot` | string | No | Snapshot name for linked clones. If omitted, the current snapshot is used |
+| `num_cpus` | int | No | Overrides the cloned VM's vCPU count. If unset (or `0`), inherits the template's value |
+| `memory_mb` | int | No | Overrides the cloned VM's memory size, in MB. If unset (or `0`), inherits the template's value |
+| `disk_size_gb` | int | No | Grows the cloned VM's primary (first) disk to this size, in GB. If unset (or `0`), inherits the template's disk size. vSphere does not support shrinking a disk, so a value smaller than the template's current disk size is rejected at startup |
 
 If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
+
+### Resource Sizing
+
+`num_cpus`, `memory_mb` and `disk_size_gb` let multiple `[[runners]]` sections share a single template while requesting different hardware per tag/tier, instead of maintaining one template per size:
+
+```toml
+[[runners]]
+  name = "ci-vm-small"
+  # ...
+  [runners.autoscaler.plugin_config]
+    template = "vm-template"
+    num_cpus = 2
+    memory_mb = 2048
+    disk_size_gb = 10
+
+[[runners]]
+  name = "ci-vm-large"
+  # ...
+  [runners.autoscaler.plugin_config]
+    template = "vm-template"
+    num_cpus = 4
+    memory_mb = 8192
+    disk_size_gb = 50
+```
 
 ### Connector Configuration
 

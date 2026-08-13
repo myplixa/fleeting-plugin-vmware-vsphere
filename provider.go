@@ -33,6 +33,13 @@ type InstanceGroup struct {
 	Snapshot           string `json:"snapshot"`
 	Name               string `json:"name"`
 
+	// NumCPUs, MemoryMB and DiskSizeGB override the template's hardware on
+	// clone. Zero means "inherit from the template". DiskSizeGB can only
+	// grow the template's primary disk, never shrink it.
+	NumCPUs    int32 `json:"num_cpus"`
+	MemoryMB   int64 `json:"memory_mb"`
+	DiskSizeGB int64 `json:"disk_size_gb"`
+
 	size     uint
 	client   vsphereclient.Client
 	settings provider.Settings
@@ -69,6 +76,18 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 
 	if g.LinkedClone {
 		options = append(options, vsphereclient.WithLinkedClone(g.Snapshot))
+	}
+
+	if g.NumCPUs > 0 {
+		options = append(options, vsphereclient.WithNumCPUs(g.NumCPUs))
+	}
+
+	if g.MemoryMB > 0 {
+		options = append(options, vsphereclient.WithMemoryMB(g.MemoryMB))
+	}
+
+	if g.DiskSizeGB > 0 {
+		options = append(options, vsphereclient.WithDiskSizeGB(g.DiskSizeGB))
 	}
 
 	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, g.Username, g.Password, options...)

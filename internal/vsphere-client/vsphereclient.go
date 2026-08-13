@@ -43,6 +43,11 @@ type client struct {
 	linkedClone  bool
 	snapshotName string
 	snapshot     *types.ManagedObjectReference
+
+	numCPUs    int32
+	memoryMB   int64
+	diskSizeGB int64
+	diskChange *types.VirtualDeviceConfigSpec
 }
 
 func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...ClientOption) (Client, error) {
@@ -103,6 +108,14 @@ func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template s
 			return nil, err
 		}
 		c.snapshot = snapshot
+	}
+
+	if c.diskSizeGB > 0 {
+		diskChange, err := c.resolveDiskResize(ctx, c.template, c.diskSizeGB)
+		if err != nil {
+			return nil, err
+		}
+		c.diskChange = diskChange
 	}
 
 	if c.folder == (types.ManagedObjectReference{}) {
@@ -214,6 +227,44 @@ func WithLinkedClone(snapshotName string) ClientOption {
 	}
 }
 
+// WithNumCPUs overrides the number of vCPUs of the cloned VM, instead of
+// inheriting the template's value.
+func WithNumCPUs(numCPUs int32) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		if numCPUs <= 0 {
+			return fmt.Errorf("num_cpus must be greater than 0, got %d", numCPUs)
+		}
+		c.numCPUs = numCPUs
+		return nil
+	}
+}
+
+// WithMemoryMB overrides the amount of memory (in MB) of the cloned VM,
+// instead of inheriting the template's value.
+func WithMemoryMB(memoryMB int64) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		if memoryMB <= 0 {
+			return fmt.Errorf("memory_mb must be greater than 0, got %d", memoryMB)
+		}
+		c.memoryMB = memoryMB
+		return nil
+	}
+}
+
+// WithDiskSizeGB grows the template's primary (first) virtual disk to the
+// given size, in GB, on clone. vSphere does not support shrinking a virtual
+// disk, so a size smaller than the template's current disk is rejected when
+// the client is initialized.
+func WithDiskSizeGB(diskSizeGB int64) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		if diskSizeGB <= 0 {
+			return fmt.Errorf("disk_size_gb must be greater than 0, got %d", diskSizeGB)
+		}
+		c.diskSizeGB = diskSizeGB
+		return nil
+	}
+}
+
 type taskResult struct {
 	name      string
 	isSuccess bool
@@ -230,17 +281,20 @@ func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
 	}
 
-	var config *types.VirtualMachineConfigSpec
+	config := c.hardwareConfigSpec()
+
 	if guestopts != nil {
 		userOptions, err := c.encodeUserData(guestopts.Username, guestopts.PubKey)
 		if err != nil {
 			return 0, err
 		}
 
-		config = &types.VirtualMachineConfigSpec{
-			// Cloud-init configurations for adding user for ssh
-			ExtraConfig: userOptions,
+		if config == nil {
+			config = &types.VirtualMachineConfigSpec{}
 		}
+
+		// Cloud-init configurations for adding user for ssh
+		config.ExtraConfig = userOptions
 	}
 
 	var wg sync.WaitGroup
@@ -481,6 +535,72 @@ func (c *client) resolveSnapshot(ctx context.Context, vmRef types.ManagedObjectR
 	}
 
 	return nil, fmt.Errorf("snapshot '%s' not found on source VM", c.snapshotName)
+}
+
+// resolveDiskResize inspects the template's primary (first) virtual disk and
+// builds a device change that grows it to sizeGB. It returns a nil spec (and
+// no error) if the template's disk is already the requested size.
+func (c *client) resolveDiskResize(ctx context.Context, vmRef types.ManagedObjectReference, sizeGB int64) (*types.VirtualDeviceConfigSpec, error) {
+	vm := object.NewVirtualMachine(c.client.Client, vmRef)
+
+	devices, err := vm.Device(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list template devices: %w", err)
+	}
+
+	disks := devices.SelectByType((*types.VirtualDisk)(nil))
+	if len(disks) == 0 {
+		return nil, fmt.Errorf("template has no virtual disks to resize")
+	}
+
+	disk, ok := disks[0].(*types.VirtualDisk)
+	if !ok {
+		return nil, fmt.Errorf("unexpected device type for template's primary disk")
+	}
+
+	requestedKB := sizeGB * 1024 * 1024
+
+	switch {
+	case requestedKB < disk.CapacityInKB:
+		return nil, fmt.Errorf(
+			"disk_size_gb (%dGB) is smaller than the template's primary disk (%dGB); virtual disks can only grow",
+			sizeGB, disk.CapacityInKB/(1024*1024),
+		)
+	case requestedKB == disk.CapacityInKB:
+		return nil, nil
+	}
+
+	disk.CapacityInKB = requestedKB
+
+	return &types.VirtualDeviceConfigSpec{
+		Operation: types.VirtualDeviceConfigSpecOperationEdit,
+		Device:    disk,
+	}, nil
+}
+
+// hardwareConfigSpec builds the config spec fragment that overrides the
+// template's CPU count, memory size and/or primary disk size on clone. It
+// returns nil if no overrides were configured.
+func (c *client) hardwareConfigSpec() *types.VirtualMachineConfigSpec {
+	if c.numCPUs == 0 && c.memoryMB == 0 && c.diskChange == nil {
+		return nil
+	}
+
+	config := &types.VirtualMachineConfigSpec{}
+
+	if c.numCPUs > 0 {
+		config.NumCPUs = c.numCPUs
+	}
+
+	if c.memoryMB > 0 {
+		config.MemoryMB = c.memoryMB
+	}
+
+	if c.diskChange != nil {
+		config.DeviceChange = []types.BaseVirtualDeviceConfigSpec{c.diskChange}
+	}
+
+	return config
 }
 
 func (c *client) powerOnVM(ctx context.Context, vmMOR types.ManagedObjectReference, vmName string) error {
