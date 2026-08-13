@@ -489,18 +489,6 @@ func TestProvisioning_MissingName(t *testing.T) {
 
 const resourceSizingTemplateName = "resource-sizing-template"
 
-// TestProvisioning_ResourceSizing verifies that DiskSizeGB, when set on the
-// InstanceGroup, actually grows the cloned VM's disk instead of being
-// silently ignored.
-//
-// NumCPUs/MemoryMB are intentionally NOT asserted here: govmomi's vcsim
-// simulator has a bug in CloneVMTask (simulator/virtual_machine.go) where it
-// computes the merged NumCPUs/MemoryMB into a local copy ("dst") of the
-// config spec but then creates the clone from the original, unmodified
-// config — so vcsim silently drops these two fields on clone, unlike real
-// vCenter. The construction of the clone's Config spec (the part this
-// plugin actually controls) is covered instead by the pure unit test
-// TestHardwareConfigSpec in internal/vsphere-client.
 func TestProvisioning_ResourceSizing(t *testing.T) {
 	model := simulator.VPX()
 	defer model.Remove()
@@ -520,7 +508,7 @@ func TestProvisioning_ResourceSizing(t *testing.T) {
 	s := model.Service.NewServer()
 	defer s.Close()
 
-	setupResourceSizingTemplate(t, s.URL, 10 /* GB */)
+	setupResourceSizingTemplate(t, s.URL, 10)
 
 	ig := InstanceGroup{
 		VsphereUrl:         s.URL.String(),
@@ -534,7 +522,7 @@ func TestProvisioning_ResourceSizing(t *testing.T) {
 		Name:               "fleeting-sizing-test",
 		NumCPUs:            4,
 		MemoryMB:           8192,
-		DiskSizeGB:         20, // grows the template's 10GB disk
+		DiskSizeGB:         20,
 	}
 
 	settings := provider.Settings{
@@ -553,7 +541,7 @@ func TestProvisioning_ResourceSizing(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, created)
 
-	vmMo := findVMByPrefix(t, s.URL, vmFolder, "fleeting-sizing-test-")
+	vmMo := findVMByName(t, s.URL, vmFolder, "fleeting-sizing-test")
 	require.NotNil(t, vmMo.Config)
 
 	var diskCapacityKB int64
@@ -566,9 +554,6 @@ func TestProvisioning_ResourceSizing(t *testing.T) {
 	require.EqualValues(t, 20*1024*1024, diskCapacityKB, "disk size was not grown")
 }
 
-// TestResourceSizing_DiskShrinkRejected verifies that requesting a
-// DiskSizeGB smaller than the template's current disk fails fast at Init,
-// instead of silently truncating data or being ignored.
 func TestResourceSizing_DiskShrinkRejected(t *testing.T) {
 	model := simulator.VPX()
 	defer model.Remove()
@@ -588,7 +573,7 @@ func TestResourceSizing_DiskShrinkRejected(t *testing.T) {
 	s := model.Service.NewServer()
 	defer s.Close()
 
-	setupResourceSizingTemplate(t, s.URL, 20 /* GB */)
+	setupResourceSizingTemplate(t, s.URL, 20)
 
 	ig := InstanceGroup{
 		VsphereUrl:         s.URL.String(),
@@ -614,8 +599,6 @@ func TestResourceSizing_DiskShrinkRejected(t *testing.T) {
 	require.Error(t, err, "expected error when DiskSizeGB is smaller than the template's disk")
 }
 
-// setupResourceSizingTemplate creates a template VM with a single SCSI disk
-// of the given size, used to exercise CPU/memory/disk overrides on clone.
 func setupResourceSizingTemplate(t *testing.T, url *url.URL, diskGB int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -679,9 +662,7 @@ func setupResourceSizingTemplate(t *testing.T, url *url.URL, diskGB int64) {
 	require.NoError(t, vm.MarkAsTemplate(ctx))
 }
 
-// findVMByPrefix looks up the first VM whose name has the given prefix in
-// folderPath, and returns its full "config" property tree.
-func findVMByPrefix(t *testing.T, url *url.URL, folderPath, prefix string) mo.VirtualMachine {
+func findVMByName(t *testing.T, url *url.URL, folderPath, tag string) mo.VirtualMachine {
 	t.Helper()
 	ctx := context.Background()
 
@@ -709,7 +690,7 @@ func findVMByPrefix(t *testing.T, url *url.URL, folderPath, prefix string) mo.Vi
 		name, err := vm.ObjectName(ctx)
 		require.NoError(t, err)
 
-		if !strings.HasPrefix(name, prefix) {
+		if !strings.Contains(name, tag) {
 			continue
 		}
 
@@ -718,6 +699,6 @@ func findVMByPrefix(t *testing.T, url *url.URL, folderPath, prefix string) mo.Vi
 		return vmMo
 	}
 
-	t.Fatalf("no VM found with prefix %q in folder %q", prefix, folderPath)
+	t.Fatalf("no VM found matching %q in folder %q", tag, folderPath)
 	return mo.VirtualMachine{}
 }

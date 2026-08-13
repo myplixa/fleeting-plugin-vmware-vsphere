@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -32,17 +33,18 @@ type Client interface {
 type ClientOption func(ctx context.Context, c *client, finder *find.Finder) error
 
 type client struct {
-	client       *govmomi.Client
-	datacenter   types.ManagedObjectReference
-	pool         types.ManagedObjectReference
-	host         *types.ManagedObjectReference
-	datastore    types.ManagedObjectReference
-	folder       types.ManagedObjectReference
-	template     types.ManagedObjectReference
-	namePrefix   string
-	linkedClone  bool
-	snapshotName string
-	snapshot     *types.ManagedObjectReference
+	client        *govmomi.Client
+	datacenter    types.ManagedObjectReference
+	pool          types.ManagedObjectReference
+	host          *types.ManagedObjectReference
+	datastore     types.ManagedObjectReference
+	folder        types.ManagedObjectReference
+	template      types.ManagedObjectReference
+	namePrefix    string
+	hostShortName string
+	linkedClone   bool
+	snapshotName  string
+	snapshot      *types.ManagedObjectReference
 
 	numCPUs    int32
 	memoryMB   int64
@@ -193,8 +195,24 @@ func WithHost(host string) ClientOption {
 
 		ref := hostSystem.Reference()
 		c.host = &ref
+		c.hostShortName = shortHostName(host)
 		return nil
 	}
+}
+
+func shortHostName(host string) string {
+	base := path.Base(host)
+	if i := strings.Index(base, "."); i >= 0 {
+		base = base[:i]
+	}
+	return base
+}
+
+func (c *client) instancePrefix() string {
+	if c.hostShortName == "" {
+		return c.namePrefix
+	}
+	return c.hostShortName + "-" + c.namePrefix
 }
 
 func WithDatastore(datastore string) ClientOption {
@@ -227,8 +245,6 @@ func WithLinkedClone(snapshotName string) ClientOption {
 	}
 }
 
-// WithNumCPUs overrides the number of vCPUs of the cloned VM, instead of
-// inheriting the template's value.
 func WithNumCPUs(numCPUs int32) ClientOption {
 	return func(ctx context.Context, c *client, finder *find.Finder) error {
 		if numCPUs <= 0 {
@@ -239,8 +255,6 @@ func WithNumCPUs(numCPUs int32) ClientOption {
 	}
 }
 
-// WithMemoryMB overrides the amount of memory (in MB) of the cloned VM,
-// instead of inheriting the template's value.
 func WithMemoryMB(memoryMB int64) ClientOption {
 	return func(ctx context.Context, c *client, finder *find.Finder) error {
 		if memoryMB <= 0 {
@@ -251,10 +265,6 @@ func WithMemoryMB(memoryMB int64) ClientOption {
 	}
 }
 
-// WithDiskSizeGB grows the template's primary (first) virtual disk to the
-// given size, in GB, on clone. vSphere does not support shrinking a virtual
-// disk, so a size smaller than the template's current disk is rejected when
-// the client is initialized.
 func WithDiskSizeGB(diskSizeGB int64) ClientOption {
 	return func(ctx context.Context, c *client, finder *find.Finder) error {
 		if diskSizeGB <= 0 {
@@ -353,7 +363,7 @@ func (c *client) GetVMs(ctx context.Context, logger hclog.Logger) (map[string]pr
 			return nil, err
 		}
 
-		if !strings.HasPrefix(name, c.namePrefix) {
+		if !strings.HasPrefix(name, c.instancePrefix()) {
 			continue
 		}
 
@@ -452,8 +462,8 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 	}
 	srcVM := object.NewVirtualMachine(c.client.Client, src)
 
-	id := uuid.New()
-	targetName := fmt.Sprintf("%s-%s", c.namePrefix, id)
+	shortID := uuid.New().String()[:8]
+	targetName := fmt.Sprintf("%s-%s", c.instancePrefix(), shortID)
 
 	folder := object.NewFolder(c.client.Client, c.folder)
 
@@ -537,9 +547,6 @@ func (c *client) resolveSnapshot(ctx context.Context, vmRef types.ManagedObjectR
 	return nil, fmt.Errorf("snapshot '%s' not found on source VM", c.snapshotName)
 }
 
-// resolveDiskResize inspects the template's primary (first) virtual disk and
-// builds a device change that grows it to sizeGB. It returns a nil spec (and
-// no error) if the template's disk is already the requested size.
 func (c *client) resolveDiskResize(ctx context.Context, vmRef types.ManagedObjectReference, sizeGB int64) (*types.VirtualDeviceConfigSpec, error) {
 	vm := object.NewVirtualMachine(c.client.Client, vmRef)
 
@@ -578,9 +585,6 @@ func (c *client) resolveDiskResize(ctx context.Context, vmRef types.ManagedObjec
 	}, nil
 }
 
-// hardwareConfigSpec builds the config spec fragment that overrides the
-// template's CPU count, memory size and/or primary disk size on clone. It
-// returns nil if no overrides were configured.
 func (c *client) hardwareConfigSpec() *types.VirtualMachineConfigSpec {
 	if c.numCPUs == 0 && c.memoryMB == 0 && c.diskChange == nil {
 		return nil

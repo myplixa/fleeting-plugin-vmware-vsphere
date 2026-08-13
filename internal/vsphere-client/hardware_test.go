@@ -12,12 +12,6 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-// TestHardwareConfigSpec covers the merge logic that turns numCPUs/memoryMB/
-// diskChange overrides into the VirtualMachineConfigSpec fragment sent as
-// part of the clone request. This is asserted at the unit level (rather than
-// against vcsim) because vcsim's CloneVMTask does not apply NumCPUs/MemoryMB
-// overrides — see the comment on TestProvisioning_ResourceSizing in
-// provider_integration_test.go for details.
 func TestHardwareConfigSpec(t *testing.T) {
 	t.Run("no overrides configured returns nil", func(t *testing.T) {
 		c := &client{}
@@ -61,9 +55,6 @@ func TestHardwareConfigSpec(t *testing.T) {
 	})
 }
 
-// TestResolveDiskResize exercises the grow / no-op / shrink-rejected paths
-// against a real (simulated) VM with an actual disk device, since the
-// capacity comparison depends on a live property fetch of the VM's devices.
 func TestResolveDiskResize(t *testing.T) {
 	model := simulator.VPX()
 	defer model.Remove()
@@ -125,7 +116,7 @@ func TestResolveDiskResize(t *testing.T) {
 	devices = append(devices, controller)
 
 	disk := devices.CreateDisk(controller.(types.BaseVirtualController), ds.Reference(), "")
-	disk.CapacityInKB = 10 * 1024 * 1024 // 10GB
+	disk.CapacityInKB = 10 * 1024 * 1024
 	devices = append(devices, disk)
 
 	changes, err := devices.ConfigSpec(types.VirtualDeviceConfigSpecOperationAdd)

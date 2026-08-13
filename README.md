@@ -40,7 +40,7 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `vsphere_url` | string | Yes | URL of the vCenter server |
 | `template` | string | Yes | Path to the VM template (full clone) or VM with snapshots (linked clone) |
 | `allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
-| `name` | string | Yes | Identifier for the instance group, used as prefix for VM names |
+| `name` | string | Yes | Identifier for the instance group, used as part of the prefix for VM names (see [VM Naming](#vm-naming)) |
 | `username` | string | No | Username to access the vCenter server |
 | `password` | string | No | Password to access the vCenter server |
 | `folder` | string | No | Destination folder where VMs will be created |
@@ -80,6 +80,16 @@ If optional parameters are not specified, the plugin will attempt to use default
     disk_size_gb = 50
 ```
 
+### VM Naming
+
+Cloned VMs are named `<host>-<name>-<id>`, where `<host>` is the short form of the `host` parameter (e.g. `host` set to `dc1/host/cluster1/esx-01.example.com` becomes `esx-01`; omitted if `host` isn't set), `<name>` is the `name` parameter, and `<id>` is a random 8-character identifier:
+
+```
+esx-01-ci-vm-small-a1b2c3d4
+```
+
+This same prefix is also how the plugin recognizes which VMs in the destination folder belong to a given instance group, so `name` (and `host`, if set) must stay consistent between runs.
+
 ### Connector Configuration
 
 The plugin uses the following defaults for VM connections:
@@ -92,7 +102,7 @@ The plugin uses the following defaults for VM connections:
 
 Note: When using
 [Docker Autoscaler](https://docs.gitlab.com/runner/executors/docker_autoscaler/),
-to enable Runner Manager’s access to the Docker socket on the VM, the user must be part of the `docker` group.
+to enable Runner Manager’s access to the Docker socket on the VM, the user must be part of the `docker` group. The plugin does not add the connector user to that group itself (only to `sudo`/`wheel`, since the user doesn't exist yet at template-build time) — the template needs to either add a matching group membership itself, or reconfigure the Docker socket's group to one the connector user is already in. On Debian-based images with Docker installed via `apt`, note that Docker typically runs under systemd socket activation, in which case the socket's group comes from the `docker.socket` unit's `SocketGroup=` setting, not from `daemon.json`'s `group` key — that key is silently ignored when socket activation is in use, and a socket unit override is required instead.
 
 ## Clone Strategies
 

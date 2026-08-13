@@ -33,9 +33,6 @@ type InstanceGroup struct {
 	Snapshot           string `json:"snapshot"`
 	Name               string `json:"name"`
 
-	// NumCPUs, MemoryMB and DiskSizeGB override the template's hardware on
-	// clone. Zero means "inherit from the template". DiskSizeGB can only
-	// grow the template's primary disk, never shrink it.
 	NumCPUs    int32 `json:"num_cpus"`
 	MemoryMB   int64 `json:"memory_mb"`
 	DiskSizeGB int64 `json:"disk_size_gb"`
