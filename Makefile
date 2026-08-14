@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-export NAME ?= fleeting-plugin-vsphere
+export NAME ?= fleeting-plugin-vmware
 export VERSION := v$(shell cat VERSION)
 export OUT_PATH ?= out
 export CGO_ENABLED ?= 0

@@ -55,7 +55,7 @@ func TestProvisioning(t *testing.T) {
 	}
 
 	integration.TestProvisioning(t,
-		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vsphere", "fleeting-plugin-vsphere"),
+		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vmware", "fleeting-plugin-vmware"),
 		integration.Config{
 			PluginConfig: InstanceGroup{
 				VsphereUrl:         s.URL.String(),
@@ -166,7 +166,7 @@ func TestProvisioning_LinkedClone(t *testing.T) {
 	setupLinkedCloneEnv(t, s.URL)
 
 	integration.TestProvisioning(t,
-		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vsphere", "fleeting-plugin-vsphere"),
+		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vmware", "fleeting-plugin-vmware"),
 		integration.Config{
 			PluginConfig: InstanceGroup{
 				VsphereUrl:         s.URL.String(),
@@ -260,7 +260,7 @@ func TestProvisioning_LinkedClone_CurrentSnapshot(t *testing.T) {
 	setupLinkedCloneEnvWithMultipleSnapshots(t, s.URL)
 
 	integration.TestProvisioning(t,
-		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vsphere", "fleeting-plugin-vsphere"),
+		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vmware", "fleeting-plugin-vmware"),
 		integration.Config{
 			PluginConfig: InstanceGroup{
 				VsphereUrl:         s.URL.String(),
@@ -359,7 +359,7 @@ func TestProvisioning_LinkedClone_NestedSnapshot(t *testing.T) {
 	setupLinkedCloneEnvWithNestedSnapshots(t, s.URL)
 
 	integration.TestProvisioning(t,
-		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vsphere", "fleeting-plugin-vsphere"),
+		integration.BuildPluginBinary(t, "cmd/fleeting-plugin-vmware", "fleeting-plugin-vmware"),
 		integration.Config{
 			PluginConfig: InstanceGroup{
 				VsphereUrl:         s.URL.String(),

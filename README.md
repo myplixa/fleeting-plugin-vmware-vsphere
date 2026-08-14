@@ -28,11 +28,11 @@ Every push to `main` builds binaries for all supported platforms and publishes t
 To install manually, per the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting/#install-binary-manually):
 
 1. Download the binary matching your control host's OS/architecture from the latest release.
-2. Rename it to `fleeting-plugin-vsphere` and place it on `$PATH` (e.g. `/usr/local/bin`).
+2. Rename it to `fleeting-plugin-vmware` and place it on `$PATH` (e.g. `/usr/local/bin`).
 3. Reference it by name in `config.toml`:
 
 ```toml
-plugin = "fleeting-plugin-vsphere"
+plugin = "fleeting-plugin-vmware"
 ```
 
 ## Full Control Runner Example
@@ -58,7 +58,7 @@ check_interval = 3
     volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
 
   [runners.autoscaler]
-    plugin = "fleeting-plugin-vsphere"
+    plugin = "fleeting-plugin-vmware"
     capacity_per_instance = 2
     max_use_count = 10
     max_instances = 5
@@ -103,7 +103,7 @@ check_interval = 3
 | `[[runners]]` | `tags` / `run_untagged` | Which jobs get routed to this runner. With multiple tiers (e.g. small/large), set `run_untagged = false` on each so a job without a matching tag doesn't land on an arbitrary tier |
 | `[runners.docker]` | `image` | Default job container image if `.gitlab-ci.yml` doesn't specify one |
 | `[runners.docker]` | `volumes` | Bind mounts into every job container. `/var/run/docker.sock:/var/run/docker.sock` is only needed if jobs themselves run `docker build`/`docker run` (Docker-in-Docker via the host socket) |
-| `[runners.autoscaler]` | `plugin` | The Fleeting plugin binary/image name — `fleeting-plugin-vsphere` for a manually-installed binary |
+| `[runners.autoscaler]` | `plugin` | The Fleeting plugin binary/image name — `fleeting-plugin-vmware` for a manually-installed binary |
 | `[runners.autoscaler]` | `capacity_per_instance` | Concurrent jobs allowed *on one VM* — they share that VM's CPU/RAM/Docker daemon, no isolation between them |
 | `[runners.autoscaler]` | `max_use_count` | Total jobs a VM may serve over its lifetime before being replaced. A ceiling, not a guarantee — see [How Parameters Interact](#how-parameters-interact) |
 | `[runners.autoscaler]` | `max_instances` | Max VMs this runner section may have running at once |
