@@ -20,10 +20,13 @@ type user struct {
 }
 
 type cloudInitConfig struct {
-	Users []user `yaml:"users"`
+	Hostname         string `yaml:"hostname,omitempty"`
+	PreserveHostname bool   `yaml:"preserve_hostname"`
+	ManageEtcHosts   bool   `yaml:"manage_etc_hosts"`
+	Users            []user `yaml:"users"`
 }
 
-func (c *client) encodeUserData(username string, pubKey []byte) ([]types.BaseOptionValue, error) {
+func (c *client) encodeUserData(username string, pubKey []byte, hostname string) ([]types.BaseOptionValue, error) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 
@@ -36,6 +39,9 @@ func (c *client) encodeUserData(username string, pubKey []byte) ([]types.BaseOpt
 	}
 
 	data := cloudInitConfig{
+		Hostname:         hostname,
+		PreserveHostname: false,
+		ManageEtcHosts:   true,
 		Users: []user{
 			{
 				Name:         username,

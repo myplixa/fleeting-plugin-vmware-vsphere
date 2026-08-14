@@ -291,22 +291,6 @@ func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger
 		return 0, fmt.Errorf("client needs to be initialized before cloning")
 	}
 
-	config := c.hardwareConfigSpec()
-
-	if guestopts != nil {
-		userOptions, err := c.encodeUserData(guestopts.Username, guestopts.PubKey)
-		if err != nil {
-			return 0, err
-		}
-
-		if config == nil {
-			config = &types.VirtualMachineConfigSpec{}
-		}
-
-		// Cloud-init configurations for adding user for ssh
-		config.ExtraConfig = userOptions
-	}
-
 	var wg sync.WaitGroup
 	resultChan := make(chan taskResult, count)
 
@@ -316,7 +300,7 @@ func (c *client) TemplateClone(ctx context.Context, count uint, log hclog.Logger
 		go func() {
 			defer wg.Done()
 
-			name, err := c.templateClone(ctx, c.template, config)
+			name, err := c.templateClone(ctx, c.template, guestopts)
 			resultChan <- taskResult{
 				name:      name,
 				isSuccess: err == nil,
@@ -443,7 +427,25 @@ func (c *client) DeleteVMs(ctx context.Context, vmNames []string, log hclog.Logg
 	return deletedVms, nil
 }
 
-func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, config *types.VirtualMachineConfigSpec) (string, error) {
+func (c *client) templateClone(ctx context.Context, src types.ManagedObjectReference, guestopts *GuestOsOpts) (string, error) {
+	shortID := uuid.New().String()[:8]
+	targetName := fmt.Sprintf("%s-%s", c.instancePrefix(), shortID)
+
+	config := c.hardwareConfigSpec()
+
+	if guestopts != nil {
+		userOptions, err := c.encodeUserData(guestopts.Username, guestopts.PubKey, targetName)
+		if err != nil {
+			return "", err
+		}
+
+		if config == nil {
+			config = &types.VirtualMachineConfigSpec{}
+		}
+
+		config.ExtraConfig = userOptions
+	}
+
 	spec := types.VirtualMachineCloneSpec{
 		Location: types.VirtualMachineRelocateSpec{
 			Folder:    &c.folder,
@@ -461,9 +463,6 @@ func (c *client) templateClone(ctx context.Context, src types.ManagedObjectRefer
 		spec.Location.DiskMoveType = string(types.VirtualMachineRelocateDiskMoveOptionsCreateNewChildDiskBacking)
 	}
 	srcVM := object.NewVirtualMachine(c.client.Client, src)
-
-	shortID := uuid.New().String()[:8]
-	targetName := fmt.Sprintf("%s-%s", c.instancePrefix(), shortID)
 
 	folder := object.NewFolder(c.client.Client, c.folder)
 

@@ -16,3 +16,6 @@
 
 # build artifacts
 out/*
+
+# real vCenter credentials for test/real-vcenter — never commit
+test/real-vcenter/config.json

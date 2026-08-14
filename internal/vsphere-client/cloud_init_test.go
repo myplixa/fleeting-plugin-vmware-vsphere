@@ -14,8 +14,9 @@ func TestEncodeUserData(t *testing.T) {
 	c := &client{}
 	username := "testuser"
 	pubKey := []byte("ssh-rsa AAAATESTKEY test@example.com")
+	hostname := "esx-01-ci-vm-small-a1b2c3d4"
 
-	options, err := c.encodeUserData(username, pubKey)
+	options, err := c.encodeUserData(username, pubKey, hostname)
 	require.NoError(t, err, "encodeUserData returned error")
 
 	var userData, encoding string
@@ -40,4 +41,6 @@ func TestEncodeUserData(t *testing.T) {
 	require.Contains(t, str, string(pubKey), "ssh key missing in cloud-init YAML")
 	require.Contains(t, str, "users:", "users key missing in cloud-init YAML")
 	require.Contains(t, str, "sudo, wheel", "required groups missing in cloud-init YAML")
+	require.Contains(t, str, "hostname: "+hostname, "hostname missing in cloud-init YAML")
+	require.Contains(t, str, "preserve_hostname: false", "preserve_hostname missing in cloud-init YAML")
 }

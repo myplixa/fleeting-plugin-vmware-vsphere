@@ -45,6 +45,16 @@ all:$(TARGETS)
 test: .mods
 	go test -v -timeout=30m ./...
 
+.PHONY: real-vcenter-test
+real-vcenter-test: .mods
+	@mkdir -p $(OUT_PATH)
+	go build -o $(OUT_PATH)/$(NAME)-realtest ./cmd/$(NAME)/...
+	go test -v -timeout=15m ./test/real-vcenter/... \
+		-plugin-binary-path=$(PWD)/$(OUT_PATH)/$(NAME)-realtest \
+		-config-path=$(PWD)/test/real-vcenter/config.json \
+		|| (rm -f $(OUT_PATH)/$(NAME)-realtest; exit 1)
+	rm -f $(OUT_PATH)/$(NAME)-realtest
+
 .PHONY: shellcheck
 shellcheck:
 	shellcheck $(shell find ci -name "*.sh")

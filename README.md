@@ -19,6 +19,18 @@ This plugin has been:
 
 As the maintainer, I don't currently have direct access to vSphere infrastructure. Community testing and feedback are welcome to further improve reliability across different setups.
 
+### Testing Against a Real vCenter
+
+`make real-vcenter-test` builds the plugin, provisions a real VM from your template through the actual plugin RPC path (same one GitLab Runner uses), and verifies SSH access, that the Docker daemon is reachable, that Docker can actually run a container, and that the guest hostname was set correctly — then deletes the VM and the temporary binary regardless of pass/fail.
+
+To use it:
+
+1. `cp test/real-vcenter/config.example.json test/real-vcenter/config.json`
+2. Fill in your real vCenter connection details, template, and sizing (`config.json` is gitignored — never commit it)
+3. `make real-vcenter-test`
+
+Without `test/real-vcenter/config.json` present, the test skips cleanly (this is also what runs, and is skipped, under plain `make test`/CI). If your VMs have no direct internet access, set `docker_test_image` in the config to an image reachable from your network — it defaults to the public `hello-world` image otherwise.
+
 ## Installation
 
 This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting/#install-with-the-oci-registry-distribution) for complete installation and configuration instructions.
@@ -245,6 +257,7 @@ To use linked clones:
 - Provisioning credentials is supported via cloud-init
 - The template VM must be configured with cloud-init
 - User data with username and SSH public key is injected into cloned VMs
+- The guest OS hostname is also set to the clone's name (see [VM Naming](#vm-naming)) via the same cloud-init user data (`hostname`/`preserve_hostname: false`/`manage_etc_hosts: true`), so every clone gets a distinct hostname instead of inheriting the template's — this matters if you point a monitoring/logging agent at these VMs and rely on hostname to tell them apart
 
 ### Windows VMs
 

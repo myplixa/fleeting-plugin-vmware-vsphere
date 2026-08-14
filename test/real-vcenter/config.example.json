@@ -1,0 +1,20 @@
+{
+  "plugin_config": {
+    "vsphere_url": "https://vcenter.example.com/sdk",
+    "username": "svc-fleeting@example.com",
+    "password": "changeme",
+    "allow_insecure_connection": true,
+    "name": "fleeting-realtest",
+    "template": "vm-template",
+    "datacenter": "DC1",
+    "folder": "/DC1/vm/ci",
+    "host": "/DC1/host/cluster1/esx-01.example.com",
+    "resource_pool": "/DC1/host/cluster1/esx-01.example.com/Resources",
+    "datastore": "esx-01-datastore",
+    "linked_clone": false,
+    "num_cpus": 2,
+    "memory_mb": 2048,
+    "disk_size_gb": 20
+  },
+  "connector_config": {}
+}
