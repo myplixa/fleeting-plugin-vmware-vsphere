@@ -1,23 +1,13 @@
-# Fleeting plugin for VMware vSphere
+# vmware-fleeting-plugin
 
 > [!note]
-> This is a fork of [santhanuv/fleeting-plugin-vmware-vsphere](https://gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere) adding `num_cpus`/`memory_mb`/`disk_size_gb` clone-time resource overrides (see [Resource Sizing](#resource-sizing)). `upstream` remote points at the original repository.
+> This is a fork of [santhanuv/fleeting-plugin-vmware-vsphere](https://gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere), detached from upstream. It adds `num_cpus`/`memory_mb`/`disk_size_gb` clone-time resource overrides (see [Resource Sizing](#resource-sizing)), prefixes vCenter-auth fields with `vsphere_` (see [Provider Configuration](#provider-configuration)), sets the guest OS hostname per clone, and includes the datacenter-scoping and guest-IP-selection fixes from upstream MR !32.
 
 This is a [fleeting plugin](https://gitlab.com/gitlab-org/fleeting/fleeting) for VMware vSphere environments. The vSphere plugin allows GitLab Runner to provision virtual machines from templates, enabling
 CI/CD jobs to be executed on dynamically created instances in your vSphere
 infrastructure.
 
-> [!note]
-> This is a community maintained plugin and is not officially supported by GitLab or VMware.
-
-## Testing Status
-
-This plugin has been:
-
-- [x] Validated against the [govmomi vcsim](https://github.com/vmware/govmomi/blob/main/vcsim/README.md) simulator
-- [x] Confirmed by community members in real vSphere environments
-
-As the maintainer, I don't currently have direct access to vSphere infrastructure. Community testing and feedback are welcome to further improve reliability across different setups.
+## Testing
 
 ### Testing Against a Real vCenter
 
@@ -33,12 +23,16 @@ Without `test/real-vcenter/config.json` present, the test skips cleanly (this is
 
 ## Installation
 
-This plugin follows the standard installation process for Fleeting plugins. See the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting/#install-with-the-oci-registry-distribution) for complete installation and configuration instructions.
+Every push to `main` builds binaries for all supported platforms and publishes them as assets on the corresponding [GitHub Release](../../releases), alongside a `release.sha256` checksums file.
 
-When configuring, use the following plugin reference:
+To install manually, per the [GitLab Fleeting documentation](https://docs.gitlab.com/runner/fleet_scaling/fleeting/#install-binary-manually):
+
+1. Download the binary matching your control host's OS/architecture from the latest release.
+2. Rename it to `fleeting-plugin-vsphere` and place it on `$PATH` (e.g. `/usr/local/bin`).
+3. Reference it by name in `config.toml`:
 
 ```toml
-plugin = "registry.gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere:latest"
+plugin = "fleeting-plugin-vsphere"
 ```
 
 ## Full Control Runner Example
@@ -263,21 +257,3 @@ To use linked clones:
 
 - Provisioning credentials is not supported for Windows VMs
 - Use static credentials with username and password
-
-## Contributing
-
-Contributions to this plugin are welcome and appreciated. You can help in several ways:
-
-- Reporting issues you encounter
-- Providing feedback from testing in vSphere environments
-- Submitting bug fixes and improving documentation
-- Suggesting new features or capabilities
-
-Please open an issue or merge request in this repository to contribute.
-
-## Acknowledgements
-
-Thanks to community members who helped test and improve this plugin:
-
-- Olivier Sechet (@osechet) for testing the plugin and contributing bug fixes
-- Mathieu Wolf (@mathieu.wolf) for adding linked clone support and validating it on real vSphere infrastructure
