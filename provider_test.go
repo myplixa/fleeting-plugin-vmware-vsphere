@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
+	vsphereclient "github.com/myplixa/vmware-fleeting-plugin/internal/vsphere-client"
+	"github.com/myplixa/vmware-fleeting-plugin/internal/vsphere-client/fake"
 	"github.com/stretchr/testify/require"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
-	vsphereclient "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client"
-	"gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client/fake"
 )
 
 func setupFakeClient(t *testing.T, setup func(client *fake.Client)) *InstanceGroup {

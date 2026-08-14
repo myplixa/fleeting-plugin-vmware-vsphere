@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
+	vsphereclient "github.com/myplixa/vmware-fleeting-plugin/internal/vsphere-client"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
-	vsphereclient "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere/internal/vsphere-client"
 )
 
 type Client struct {

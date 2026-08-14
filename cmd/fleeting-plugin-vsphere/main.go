@@ -1,8 +1,8 @@
 package main
 
 import (
+	vsphere "github.com/myplixa/vmware-fleeting-plugin"
 	"gitlab.com/gitlab-org/fleeting/fleeting/plugin"
-	vsphere "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere"
 )
 
 func main() {

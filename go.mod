@@ -1,4 +1,4 @@
-module gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere
+module github.com/myplixa/vmware-fleeting-plugin
 
 go 1.25.0
 

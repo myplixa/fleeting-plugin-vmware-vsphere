@@ -15,7 +15,7 @@ import (
 	"gitlab.com/gitlab-org/fleeting/fleeting/connector"
 	"gitlab.com/gitlab-org/fleeting/fleeting/provider"
 
-	vsphere "gitlab.com/santhanuv/fleeting-plugin-vmware-vsphere"
+	vsphere "github.com/myplixa/vmware-fleeting-plugin"
 )
 
 var (
