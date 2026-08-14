@@ -20,17 +20,17 @@ var newClient = vsphereclient.NewClient
 
 type InstanceGroup struct {
 	VsphereUrl         string `json:"vsphere_url"`
-	Username           string `json:"username"`
-	Password           string `json:"password"`
-	Template           string `json:"template"`
-	Folder             string `json:"folder"`
-	Datacenter         string `json:"datacenter"`
-	Host               string `json:"host"`
-	Datastore          string `json:"datastore"`
-	ResourcePool       string `json:"resource_pool"`
-	InsecureConnection bool   `json:"allow_insecure_connection"`
-	LinkedClone        bool   `json:"linked_clone"`
-	Snapshot           string `json:"snapshot"`
+	Username           string `json:"vsphere_username"`
+	Password           string `json:"vsphere_password"`
+	Template           string `json:"vsphere_template"`
+	Folder             string `json:"vsphere_folder"`
+	Datacenter         string `json:"vsphere_datacenter"`
+	Host               string `json:"vsphere_host"`
+	Datastore          string `json:"vsphere_datastore"`
+	ResourcePool       string `json:"vsphere_resource_pool"`
+	InsecureConnection bool   `json:"vsphere_allow_insecure_connection"`
+	LinkedClone        bool   `json:"vsphere_linked_clone"`
+	Snapshot           string `json:"vsphere_snapshot"`
 	Name               string `json:"name"`
 
 	NumCPUs    int32 `json:"num_cpus"`

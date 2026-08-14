@@ -80,17 +80,17 @@ check_interval = 3
 
     [runners.autoscaler.plugin_config]
       vsphere_url = "https://vcenter.example.com/sdk"
-      username = "svc-fleeting@example.com"
-      password = "..."
-      allow_insecure_connection = false
+      vsphere_username = "svc-fleeting@example.com"
+      vsphere_password = "..."
+      vsphere_allow_insecure_connection = false
       name = "ci-vm-small"
-      template = "vm-template"
-      datacenter = "DC1"
-      folder = "/DC1/vm/ci"
-      host = "/DC1/host/cluster1/esx-01.example.com"
-      resource_pool = "/DC1/host/cluster1/esx-01.example.com/Resources"
-      datastore = "esx-01-datastore"
-      linked_clone = false
+      vsphere_template = "vm-template"
+      vsphere_datacenter = "DC1"
+      vsphere_folder = "/DC1/vm/ci"
+      vsphere_host = "/DC1/host/cluster1/esx-01.example.com"
+      vsphere_resource_pool = "/DC1/host/cluster1/esx-01.example.com/Resources"
+      vsphere_datastore = "esx-01-datastore"
+      vsphere_linked_clone = false
       num_cpus = 2
       memory_mb = 2048
       disk_size_gb = 20
@@ -145,9 +145,9 @@ idle_count = 1, idle_time = "5m0s"
   actually working toward max_use_count.
 ```
 
-**One template, multiple hardware tiers** — `num_cpus`/`memory_mb`/`disk_size_gb` let separate `[[runners]]` sections (different `name`/`tags`) share the same `template`, instead of maintaining one template per size (see [Resource Sizing](#resource-sizing)).
+**One template, multiple hardware tiers** — `num_cpus`/`memory_mb`/`disk_size_gb` let separate `[[runners]]` sections (different `name`/`tags`) share the same `vsphere_template`, instead of maintaining one template per size (see [Resource Sizing](#resource-sizing)).
 
-**VM naming ties `host` and `name` together** — two tiers pointed at different `host` values but the same `name` would produce distinguishable clone names (e.g. `esx-01-ci-vm-small-a1b2c3d4` vs `esx-02-ci-vm-small-f9e8d7c6`), while also being how the plugin tells its own instances apart from everything else in the destination `folder` (see [VM Naming](#vm-naming)).
+**VM naming ties `vsphere_host` and `name` together** — two tiers pointed at different `vsphere_host` values but the same `name` would produce distinguishable clone names (e.g. `esx-01-ci-vm-small-a1b2c3d4` vs `esx-02-ci-vm-small-f9e8d7c6`), while also being how the plugin tells its own instances apart from everything else in the destination `vsphere_folder` (see [VM Naming](#vm-naming)).
 
 ## Configuration
 
@@ -158,18 +158,18 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `vsphere_url` | string | Yes | URL of the vCenter server |
-| `template` | string | Yes | Path to the VM template (full clone) or VM with snapshots (linked clone) |
-| `allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
+| `vsphere_template` | string | Yes | Path to the VM template (full clone) or VM with snapshots (linked clone) |
+| `vsphere_allow_insecure_connection` | bool | Yes | Whether to skip SSL certificate verification |
 | `name` | string | Yes | Identifier for the instance group, used as part of the prefix for VM names (see [VM Naming](#vm-naming)) |
-| `username` | string | No | Username to access the vCenter server |
-| `password` | string | No | Password to access the vCenter server |
-| `folder` | string | No | Destination folder where VMs will be created |
-| `datacenter` | string | No | Datacenter where VMs will be created |
-| `host` | string | No | Target ESXi host for the cloned VMs |
-| `datastore` | string | No | Datastore where the cloned VMs will be located |
-| `resource_pool` | string | No | Resource pool to which cloned VMs will be added |
-| `linked_clone` | bool | No | Use linked clone instead of full clone (default: `false`) |
-| `snapshot` | string | No | Snapshot name for linked clones. If omitted, the current snapshot is used |
+| `vsphere_username` | string | No | Username to access the vCenter server — distinct from `connector_config.username`, which is the guest OS SSH login (see [Connector Configuration](#connector-configuration)) |
+| `vsphere_password` | string | No | Password to access the vCenter server |
+| `vsphere_folder` | string | No | Destination folder where VMs will be created |
+| `vsphere_datacenter` | string | No | Datacenter where VMs will be created |
+| `vsphere_host` | string | No | Target ESXi host for the cloned VMs |
+| `vsphere_datastore` | string | No | Datastore where the cloned VMs will be located |
+| `vsphere_resource_pool` | string | No | Resource pool to which cloned VMs will be added |
+| `vsphere_linked_clone` | bool | No | Use linked clone instead of full clone (default: `false`) |
+| `vsphere_snapshot` | string | No | Snapshot name for linked clones. If omitted, the current snapshot is used |
 | `num_cpus` | int | No | Overrides the cloned VM's vCPU count. If unset (or `0`), inherits the template's value |
 | `memory_mb` | int | No | Overrides the cloned VM's memory size, in MB. If unset (or `0`), inherits the template's value |
 | `disk_size_gb` | int | No | Grows the cloned VM's primary (first) disk to this size, in GB. If unset (or `0`), inherits the template's disk size. vSphere does not support shrinking a disk, so a value smaller than the template's current disk size is rejected at startup |
@@ -185,7 +185,7 @@ If optional parameters are not specified, the plugin will attempt to use default
   name = "ci-vm-small"
   # ...
   [runners.autoscaler.plugin_config]
-    template = "vm-template"
+    vsphere_template = "vm-template"
     num_cpus = 2
     memory_mb = 2048
     disk_size_gb = 10
@@ -194,7 +194,7 @@ If optional parameters are not specified, the plugin will attempt to use default
   name = "ci-vm-large"
   # ...
   [runners.autoscaler.plugin_config]
-    template = "vm-template"
+    vsphere_template = "vm-template"
     num_cpus = 4
     memory_mb = 8192
     disk_size_gb = 50
@@ -202,13 +202,13 @@ If optional parameters are not specified, the plugin will attempt to use default
 
 ### VM Naming
 
-Cloned VMs are named `<host>-<name>-<id>`, where `<host>` is the short form of the `host` parameter (e.g. `host` set to `dc1/host/cluster1/esx-01.example.com` becomes `esx-01`; omitted if `host` isn't set), `<name>` is the `name` parameter, and `<id>` is a random 8-character identifier:
+Cloned VMs are named `<host>-<name>-<id>`, where `<host>` is the short form of the `vsphere_host` parameter (e.g. `vsphere_host` set to `dc1/host/cluster1/esx-01.example.com` becomes `esx-01`; omitted if `vsphere_host` isn't set), `<name>` is the `name` parameter, and `<id>` is a random 8-character identifier:
 
 ```
 esx-01-ci-vm-small-a1b2c3d4
 ```
 
-This same prefix is also how the plugin recognizes which VMs in the destination folder belong to a given instance group, so `name` (and `host`, if set) must stay consistent between runs.
+This same prefix is also how the plugin recognizes which VMs in the destination folder belong to a given instance group, so `name` (and `vsphere_host`, if set) must stay consistent between runs.
 
 ### Connector Configuration
 
@@ -242,13 +242,13 @@ To use linked clones:
 
 ```toml
 [runners.autoscaler.plugin_config]
-  template = "my-source-vm"
-  linked_clone = true
-  snapshot = "Base_1"  # optional: omit to use the current snapshot
+  vsphere_template = "my-source-vm"
+  vsphere_linked_clone = true
+  vsphere_snapshot = "Base_1"  # optional: omit to use the current snapshot
 ```
 
 > [!note]
-> For linked clones, the `template` parameter must point to a VM with at least one snapshot.
+> For linked clones, the `vsphere_template` parameter must point to a VM with at least one snapshot.
 
 ## VM Provisioning
 
