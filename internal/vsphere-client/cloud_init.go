@@ -2,9 +2,10 @@ package vsphereclient
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/base64"
 	"fmt"
+	"mime/multipart"
+	"net/textproto"
 
 	"github.com/vmware/govmomi/vim25/types"
 	"gopkg.in/yaml.v3"
@@ -20,28 +21,32 @@ type user struct {
 }
 
 type cloudInitConfig struct {
-	Hostname         string `yaml:"hostname,omitempty"`
-	PreserveHostname bool   `yaml:"preserve_hostname"`
-	ManageEtcHosts   bool   `yaml:"manage_etc_hosts"`
-	Users            []user `yaml:"users"`
+	Hostname                string `yaml:"hostname,omitempty"`
+	PreserveHostname        bool   `yaml:"preserve_hostname"`
+	ManageEtcHosts          bool   `yaml:"manage_etc_hosts"`
+	PackageUpdate           bool   `yaml:"package_update"`
+	PackageUpgrade          bool   `yaml:"package_upgrade"`
+	PackageRebootIfRequired bool   `yaml:"package_reboot_if_required"`
+	Users                   []user `yaml:"users"`
+	FinalMessage            string `yaml:"final_message"`
+}
+
+// cloudInitExtraData is the data made available to cloud_init_extra_file templates.
+type cloudInitExtraData struct {
+	Hostname   string
+	RunnerName string
+	Vars       map[string]string
 }
 
 func (c *client) encodeUserData(username string, pubKey []byte, hostname string) ([]types.BaseOptionValue, error) {
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-
-	if _, err := gw.Write(pubKey); err != nil {
-		return nil, fmt.Errorf("compressing cloud-init user data: %w", err)
-	}
-
-	if err := gw.Close(); err != nil {
-		return nil, fmt.Errorf("compressing cloud-init user data: %w", err)
-	}
-
 	data := cloudInitConfig{
-		Hostname:         hostname,
-		PreserveHostname: false,
-		ManageEtcHosts:   true,
+		Hostname:                hostname,
+		PreserveHostname:        false,
+		ManageEtcHosts:          true,
+		PackageUpdate:           false,
+		PackageUpgrade:          false,
+		PackageRebootIfRequired: false,
+		FinalMessage:            "Cloud-init finished successfully at $TIMESTAMP",
 		Users: []user{
 			{
 				Name:         username,
@@ -61,7 +66,20 @@ func (c *client) encodeUserData(username string, pubKey []byte, hostname string)
 		return nil, fmt.Errorf("configuring cloud-init user data: %w", err)
 	}
 
-	config := fmt.Sprintf("#cloud-config\n\n%s", marshalled)
+	baseConfig := fmt.Sprintf("#cloud-config\n\n%s", marshalled)
+
+	config := baseConfig
+	if c.cloudInitExtraTemplate != nil {
+		extra, err := c.renderCloudInitExtra(hostname)
+		if err != nil {
+			return nil, err
+		}
+
+		config, err = buildMultipartUserData(baseConfig, extra)
+		if err != nil {
+			return nil, fmt.Errorf("assembling multipart cloud-init user data: %w", err)
+		}
+	}
 
 	encoded := base64.StdEncoding.EncodeToString([]byte(config))
 
@@ -77,4 +95,53 @@ func (c *client) encodeUserData(username string, pubKey []byte, hostname string)
 	}
 
 	return options, nil
+}
+
+func (c *client) renderCloudInitExtra(hostname string) (string, error) {
+	data := cloudInitExtraData{
+		Hostname:   hostname,
+		RunnerName: c.namePrefix,
+		Vars:       c.cloudInitVars,
+	}
+
+	var buf bytes.Buffer
+	if err := c.cloudInitExtraTemplate.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("rendering cloud_init_extra_file: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
+// buildMultipartUserData assembles the given #cloud-config documents into the
+// MIME multi-part format cloud-init expects for combining several user-data
+// documents into one. cloud-init merges write_files/runcmd/packages across
+// parts (list values append), so the plugin's own base config (hostname,
+// SSH user, package_* settings) and the operator-supplied extra config are
+// both applied rather than one overwriting the other.
+func buildMultipartUserData(parts ...string) (string, error) {
+	var buf bytes.Buffer
+	mpw := multipart.NewWriter(&buf)
+
+	for i, content := range parts {
+		header := textproto.MIMEHeader{}
+		header.Set("Content-Type", `text/cloud-config; charset="us-ascii"`)
+		header.Set("MIME-Version", "1.0")
+		header.Set("Content-Transfer-Encoding", "7bit")
+		header.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="cloud-config-%d.yaml"`, i))
+
+		pw, err := mpw.CreatePart(header)
+		if err != nil {
+			return "", err
+		}
+
+		if _, err := pw.Write([]byte(content)); err != nil {
+			return "", err
+		}
+	}
+
+	if err := mpw.Close(); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\nMIME-Version: 1.0\n\n%s", mpw.Boundary(), buf.String()), nil
 }

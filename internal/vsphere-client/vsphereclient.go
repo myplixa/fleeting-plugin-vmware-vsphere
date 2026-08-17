@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
@@ -50,6 +53,9 @@ type client struct {
 	memoryMB   int64
 	diskSizeGB int64
 	diskChange *types.VirtualDeviceConfigSpec
+
+	cloudInitExtraTemplate *template.Template
+	cloudInitVars          map[string]string
 }
 
 func NewClient(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...ClientOption) (Client, error) {
@@ -280,6 +286,35 @@ func WithDiskSizeGB(diskSizeGB int64) ClientOption {
 			return fmt.Errorf("disk_size_gb must be greater than 0, got %d", diskSizeGB)
 		}
 		c.diskSizeGB = diskSizeGB
+		return nil
+	}
+}
+
+// WithCloudInitExtraFile reads and parses the given file once at startup, so a
+// broken template fails the plugin's Init immediately instead of failing every
+// subsequent clone. The file is treated as a Go text/template producing one or
+// more #cloud-config documents; see cloudInitExtraData for the fields it can
+// reference.
+func WithCloudInitExtraFile(path string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("reading cloud_init_extra_file %s: %w", path, err)
+		}
+
+		tmpl, err := template.New(filepath.Base(path)).Parse(string(content))
+		if err != nil {
+			return fmt.Errorf("parsing cloud_init_extra_file %s: %w", path, err)
+		}
+
+		c.cloudInitExtraTemplate = tmpl
+		return nil
+	}
+}
+
+func WithCloudInitVars(vars map[string]string) ClientOption {
+	return func(ctx context.Context, c *client, finder *find.Finder) error {
+		c.cloudInitVars = vars
 		return nil
 	}
 }

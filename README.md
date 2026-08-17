@@ -167,6 +167,8 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `num_cpus` | int | No | Overrides the cloned VM's vCPU count. If unset (or `0`), inherits the template's value |
 | `memory_mb` | int | No | Overrides the cloned VM's memory size, in MB. If unset (or `0`), inherits the template's value |
 | `disk_size_gb` | int | No | Grows the cloned VM's primary (first) disk to this size, in GB. If unset (or `0`), inherits the template's disk size. vSphere does not support shrinking a disk, so a value smaller than the template's current disk size is rejected at startup |
+| `cloud_init_extra_file` | string | No | Path to a file with additional cloud-init directives to merge into every clone's user data, on top of the plugin's own. See [Extending cloud-init](#extending-cloud-init) |
+| `cloud_init_vars` | map[string]string | No | Arbitrary key/value pairs made available to `cloud_init_extra_file` as `{{ .Vars.<key> }}` — the place for values the extra file needs but that shouldn't be hardcoded into it (tokens, endpoints). See [Extending cloud-init](#extending-cloud-init) |
 
 If optional parameters are not specified, the plugin will attempt to use default values from the vSphere environment.
 
@@ -252,8 +254,80 @@ To use linked clones:
 - The template VM must be configured with cloud-init
 - User data with username and SSH public key is injected into cloned VMs
 - The guest OS hostname is also set to the clone's name (see [VM Naming](#vm-naming)) via the same cloud-init user data (`hostname`/`preserve_hostname: false`/`manage_etc_hosts: true`), so every clone gets a distinct hostname instead of inheriting the template's — this matters if you point a monitoring/logging agent at these VMs and rely on hostname to tell them apart
+- Package management on boot is disabled (`package_update: false`/`package_upgrade: false`/`package_reboot_if_required: false`) — the template is expected to already have everything it needs (see the Packer build), and updating/rebooting on every clone would slow down provisioning and risk drift between clones of the same template
+- `final_message: "Cloud-init finished successfully at $TIMESTAMP"` is set so a completed boot is visible in the guest's own cloud-init logs (`/var/log/cloud-init-output.log`) — useful when troubleshooting a clone that came up unreachable
 
 ### Windows VMs
 
 - Provisioning credentials is not supported for Windows VMs
 - Use static credentials with username and password
+
+## Extending cloud-init
+
+The plugin always generates its own minimal cloud-config (hostname, SSH user/key, package management disabled — see [VM Provisioning](#vm-provisioning)). That part isn't user-editable, since the plugin depends on it for the connector to be able to reach the VM at all.
+
+To add anything beyond that — installing a monitoring agent, writing extra files, running arbitrary `runcmd` steps — set `cloud_init_extra_file` to a separate file instead of touching the plugin's own generated config:
+
+```toml
+[runners.autoscaler.plugin_config]
+  # ...
+  cloud_init_extra_file = "/etc/gitlab-runner/cloud-init-extra.yaml"
+
+  [runners.autoscaler.plugin_config.cloud_init_vars]
+    example_token = "xxxxxxxx"
+```
+
+If `cloud_init_extra_file` is unset, behavior is unchanged from before this option existed — a single `#cloud-config` document, exactly as described in [VM Provisioning](#vm-provisioning).
+
+### How the two configs combine
+
+If `cloud_init_extra_file` is set, the plugin does **not** merge its fields into the extra file's YAML by hand. Instead, at boot the guest receives two separate `#cloud-config` documents as parts of a single [MIME multi-part `guestinfo.userdata`](https://cloudinit.readthedocs.io/en/latest/explanation/format.html) message — the plugin's own document first, the rendered extra file second. cloud-init itself merges them: list-valued keys like `write_files`, `runcmd`, and `packages` are concatenated across parts, so the extra file only needs to declare what it wants to add, never repeat what the plugin already sets.
+
+This means the extra file cannot accidentally disable the plugin's own SSH/hostname setup — the two are independent documents, not one YAML tree the extra file could clobber a key in.
+
+### Template variables
+
+`cloud_init_extra_file` is read once, at plugin startup — not per clone — and parsed as a [Go `text/template`](https://pkg.go.dev/text/template). A broken template fails startup immediately rather than every subsequent clone. The following fields are available:
+
+| Field | Description |
+|---|---|
+| `{{ .Hostname }}` | The clone's unique name (same value set as the guest hostname, see [VM Naming](#vm-naming)) |
+| `{{ .RunnerName }}` | The `name` parameter of the `[[runners]]` section that owns this clone — useful for telling instance groups/tiers apart in labels |
+| `{{ .Vars.<key> }}` | Any key from `cloud_init_vars` — the place to put values that shouldn't be hardcoded into the shared extra file, e.g. an internal registry token |
+
+### Example: installing a monitoring agent
+
+Anonymized example — the extra file installs a metrics/log-shipping agent from a private repository and configures a group/service override, without touching the plugin's own cloud-config:
+
+```yaml
+# /etc/gitlab-runner/cloud-init-extra.yaml
+write_files:
+  - path: /etc/agent/config.yaml
+    permissions: '0644'
+    owner: root:root
+    content: |
+      instance_label: {{ .RunnerName }}-{{ .Hostname }}
+      remote_write_url: https://monitoring.example.com/api/v1/write
+
+  - path: /etc/systemd/system/agent.service.d/override.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Service]
+      User=root
+
+runcmd:
+  - curl -fsSL -o /tmp/agent.deb "https://{{ .Vars.download_token }}@repo.example.com/agent-1.0.0.amd64.deb"
+  - dpkg -i /tmp/agent.deb
+  - rm -f /tmp/agent.deb
+  - systemctl daemon-reload
+  - usermod -aG docker agent
+  - systemctl enable --now agent
+```
+
+With:
+
+```toml
+[runners.autoscaler.plugin_config.cloud_init_vars]
+  download_token = "svc-repo-token:xxxxxxxx"
+```

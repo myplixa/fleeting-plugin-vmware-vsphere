@@ -37,6 +37,9 @@ type InstanceGroup struct {
 	MemoryMB   int64 `json:"memory_mb"`
 	DiskSizeGB int64 `json:"disk_size_gb"`
 
+	CloudInitExtraFile string            `json:"cloud_init_extra_file,omitempty"`
+	CloudInitVars      map[string]string `json:"cloud_init_vars,omitempty"`
+
 	size     uint
 	client   vsphereclient.Client
 	settings provider.Settings
@@ -85,6 +88,14 @@ func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings 
 
 	if g.DiskSizeGB > 0 {
 		options = append(options, vsphereclient.WithDiskSizeGB(g.DiskSizeGB))
+	}
+
+	if g.CloudInitExtraFile != "" {
+		options = append(options, vsphereclient.WithCloudInitExtraFile(g.CloudInitExtraFile))
+	}
+
+	if len(g.CloudInitVars) > 0 {
+		options = append(options, vsphereclient.WithCloudInitVars(g.CloudInitVars))
 	}
 
 	client, err := newClient(ctx, g.VsphereUrl, g.InsecureConnection, g.Template, g.Username, g.Password, options...)
