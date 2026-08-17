@@ -302,7 +302,14 @@ Anonymized example — the extra file installs a metrics/log-shipping agent from
 ```yaml
 # /etc/gitlab-runner/cloud-init-extra.yaml
 write_files:
-  - path: /etc/agent/config.yaml
+  # Staged, not the final path: if the agent's package ships its own default
+  # config at /etc/agent/config.yaml (a package conffile) and write_files
+  # puts a file there first, dpkg sees a "user-modified" conffile at install
+  # time and drops into an interactive prompt — which hangs runcmd, since
+  # there's no TTY to answer it. Installing first and moving this into place
+  # afterwards avoids the conflict instead of fighting it with dpkg's
+  # --force-conf* flags.
+  - path: /etc/agent/config.yaml.new
     permissions: '0644'
     owner: root:root
     content: |
@@ -317,9 +324,14 @@ write_files:
       User=root
 
 runcmd:
-  - curl -fsSL -o /tmp/agent.deb "https://{{ .Vars.download_token }}@repo.example.com/agent-1.0.0.amd64.deb"
-  - dpkg -i /tmp/agent.deb
+  # DNS isn't guaranteed to be resolvable the instant cloud-init decides the
+  # network is up (the DHCP client can still be writing /etc/resolv.conf) —
+  # retry instead of failing on that boot-time race.
+  - for i in 1 2 3 4 5 6; do curl -fsSL -o /tmp/agent.deb "https://{{ .Vars.download_token }}@repo.example.com/agent-1.0.0.amd64.deb" && break || sleep 10; done
+  - test -s /tmp/agent.deb
+  - DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/agent.deb
   - rm -f /tmp/agent.deb
+  - mv /etc/agent/config.yaml.new /etc/agent/config.yaml
   - systemctl daemon-reload
   - usermod -aG docker agent
   - systemctl enable --now agent
@@ -331,3 +343,6 @@ With:
 [runners.autoscaler.plugin_config.cloud_init_vars]
   download_token = "svc-repo-token:xxxxxxxx"
 ```
+
+> [!note]
+> Both `runcmd` steps above come from lessons learned deploying an actual monitoring agent this way: a boot-time DNS race and a dpkg conffile prompt both showed up on the first real clone, despite `cloud-init status` on the plugin's own base config having no issues. Test `cloud_init_extra_file` end to end (`cloud-init status --long` and `journalctl -u cloud-init` on a real clone) before trusting it in production — a broken `runcmd` fails silently as far as the plugin is concerned, since VM readiness only depends on the plugin's own base cloud-config succeeding, not on the extra file's.
