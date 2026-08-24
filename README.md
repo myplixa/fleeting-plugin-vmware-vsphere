@@ -157,6 +157,7 @@ The plugin requires configuration for both the vSphere environment and VM connec
 | `name` | string | Yes | Identifier for the instance group, used as part of the prefix for VM names (see [VM Naming](#vm-naming)) |
 | `vsphere_username` | string | No | Username to access the vCenter server — distinct from `connector_config.username`, which is the guest OS SSH login (see [Connector Configuration](#connector-configuration)) |
 | `vsphere_password` | string | No | Password to access the vCenter server |
+| `vsphere_credentials_file` | string | No | Path to a YAML file supplying `vsphere_url`/`vsphere_username`/`vsphere_password`/`vsphere_allow_insecure_connection` out-of-band, so they don't have to be duplicated (or committed) inline in every `[[runners]]` block that targets the same vCenter. See [Credentials File](#credentials-file) |
 | `vsphere_folder` | string | No | Destination folder where VMs will be created |
 | `vsphere_datacenter` | string | No | Datacenter where VMs will be created |
 | `vsphere_host` | string | No | Target ESXi host for the cloned VMs |
@@ -195,6 +196,32 @@ If optional parameters are not specified, the plugin will attempt to use default
     memory_mb = 8192
     disk_size_gb = 50
 ```
+
+### Credentials File
+
+By default, `vsphere_url`/`vsphere_username`/`vsphere_password`/`vsphere_allow_insecure_connection` are set inline in `plugin_config`, as in the examples above. If several `[[runners]]` blocks on the same control host point at the same vCenter (e.g. separate hardware tiers, see [Resource Sizing](#resource-sizing)), that means the same password ends up duplicated across every block in `config.toml`.
+
+Setting `vsphere_credentials_file` to the path of a YAML file lets those four fields live in one place instead, referenced by every `plugin_config` block that needs them:
+
+```yaml
+# /etc/gitlab-runner/vsphere-credentials.yaml
+url: https://vcenter.example.com/sdk
+username: svc-fleeting@example.com
+password: "..."
+insecure_connection: false
+```
+
+```toml
+[runners.autoscaler.plugin_config]
+  vsphere_credentials_file = "/etc/gitlab-runner/vsphere-credentials.yaml"
+  name = "ci-vm-small"
+  vsphere_template = "vm-template"
+  # ...
+```
+
+Any of the four fields already set inline in `plugin_config` take precedence over the file's value — the file only fills in whatever's left blank (`false` for `vsphere_allow_insecure_connection`, since there's no way to distinguish "not set" from an explicit `false`). This means a block can still override just one field (e.g. a different `vsphere_url` per datacenter) while sharing the rest from the file.
+
+Unlike the OpenStack Fleeting plugin's `clouds.yaml`, this file format isn't an established ecosystem convention — govmomi/vSphere has no equivalent standard — it's specific to this plugin.
 
 ### VM Naming
 

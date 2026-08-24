@@ -22,6 +22,7 @@ type InstanceGroup struct {
 	VsphereUrl         string `json:"vsphere_url"`
 	Username           string `json:"vsphere_username"`
 	Password           string `json:"vsphere_password"`
+	CredentialsFile    string `json:"vsphere_credentials_file,omitempty"`
 	Template           string `json:"vsphere_template"`
 	Folder             string `json:"vsphere_folder"`
 	Datacenter         string `json:"vsphere_datacenter"`
@@ -49,6 +50,26 @@ type InstanceGroup struct {
 }
 
 func (g *InstanceGroup) Init(ctx context.Context, logger hclog.Logger, settings provider.Settings) (provider.ProviderInfo, error) {
+	if g.CredentialsFile != "" {
+		creds, err := loadCredentialsFile(g.CredentialsFile)
+		if err != nil {
+			return provider.ProviderInfo{}, err
+		}
+
+		if g.VsphereUrl == "" {
+			g.VsphereUrl = creds.Url
+		}
+		if g.Username == "" {
+			g.Username = creds.Username
+		}
+		if g.Password == "" {
+			g.Password = creds.Password
+		}
+		if !g.InsecureConnection {
+			g.InsecureConnection = creds.InsecureConnection
+		}
+	}
+
 	var options []vsphereclient.ClientOption
 
 	if g.Datacenter != "" {

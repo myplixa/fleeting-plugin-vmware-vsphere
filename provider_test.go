@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
@@ -95,6 +97,90 @@ func TestInit(t *testing.T) {
 
 		_, err := group.Init(ctx, hclog.Default(), settings)
 		require.ErrorContains(t, err, "reading private key: ssh: no key found")
+	})
+}
+
+func TestInitCredentialsFile(t *testing.T) {
+	writeCredsFile := func(t *testing.T, contents string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "vsphere-credentials.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+		return path
+	}
+
+	captureClientArgs := func(t *testing.T) (*InstanceGroup, *string, *string, *string, *bool) {
+		t.Helper()
+
+		oldClient := newClient
+		t.Cleanup(func() { newClient = oldClient })
+
+		var gotURL, gotUsername, gotPassword string
+		var gotInsecure bool
+		newClient = func(ctx context.Context, vsphereUrl string, insecure bool, template string, username string, password string, options ...vsphereclient.ClientOption) (vsphereclient.Client, error) {
+			gotURL = vsphereUrl
+			gotInsecure = insecure
+			gotUsername = username
+			gotPassword = password
+			return fake.New(), nil
+		}
+
+		group := &InstanceGroup{
+			Name:       "test-vsphere",
+			Datacenter: "test-datacenter",
+			Folder:     "test-folder",
+			Template:   "test-template",
+		}
+
+		return group, &gotURL, &gotUsername, &gotPassword, &gotInsecure
+	}
+
+	t.Run("fills in empty fields from file", func(t *testing.T) {
+		path := writeCredsFile(t, "url: https://vcenter.file.example.com/sdk\nusername: file-user\npassword: file-pass\ninsecure_connection: true\n")
+
+		group, gotURL, gotUsername, gotPassword, gotInsecure := captureClientArgs(t)
+		group.CredentialsFile = path
+
+		_, err := group.Init(context.Background(), hclog.Default(), provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{UseStaticCredentials: true},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, "https://vcenter.file.example.com/sdk", *gotURL)
+		require.Equal(t, "file-user", *gotUsername)
+		require.Equal(t, "file-pass", *gotPassword)
+		require.True(t, *gotInsecure)
+
+		require.Equal(t, "https://vcenter.file.example.com/sdk", group.VsphereUrl)
+		require.Equal(t, "file-user", group.Username)
+		require.Equal(t, "file-pass", group.Password)
+	})
+
+	t.Run("inline values take precedence over file", func(t *testing.T) {
+		path := writeCredsFile(t, "url: https://vcenter.file.example.com/sdk\nusername: file-user\npassword: file-pass\n")
+
+		group, gotURL, gotUsername, gotPassword, _ := captureClientArgs(t)
+		group.CredentialsFile = path
+		group.VsphereUrl = "https://vcenter.inline.example.com/sdk"
+		group.Username = "inline-user"
+
+		_, err := group.Init(context.Background(), hclog.Default(), provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{UseStaticCredentials: true},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, "https://vcenter.inline.example.com/sdk", *gotURL)
+		require.Equal(t, "inline-user", *gotUsername)
+		require.Equal(t, "file-pass", *gotPassword)
+	})
+
+	t.Run("missing file returns error", func(t *testing.T) {
+		group, _, _, _, _ := captureClientArgs(t)
+		group.CredentialsFile = filepath.Join(t.TempDir(), "does-not-exist.yaml")
+
+		_, err := group.Init(context.Background(), hclog.Default(), provider.Settings{
+			ConnectorConfig: provider.ConnectorConfig{UseStaticCredentials: true},
+		})
+		require.ErrorContains(t, err, "reading vsphere_credentials_file")
 	})
 }
 
