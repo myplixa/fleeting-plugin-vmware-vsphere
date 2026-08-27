@@ -260,7 +260,16 @@ func (g *InstanceGroup) Decrease(ctx context.Context, instances []string) ([]str
 	count := int(g.size) - len(deleted)
 
 	if count < 0 {
-		g.log.Error("out-of-sync size", "count", count, "size", g.size, "deleted", len(deleted))
+		// g.size is a purely internal bookkeeping counter (not read by
+		// anything outside Increase/Decrease); it goes negative when
+		// Decrease is asked to delete VMs this process didn't itself
+		// create via Increase - e.g. VMs orphaned by a previous process
+		// that Update()/GetVMs picked back up after a restart. Clamp to
+		// zero instead of wrapping to a huge value via uint(count), which
+		// would otherwise keep this warning firing on every subsequent
+		// Decrease call until the process restarts.
+		g.log.Warn("out-of-sync size", "count", count, "size", g.size, "deleted", len(deleted))
+		count = 0
 	}
 
 	g.size = uint(count)
